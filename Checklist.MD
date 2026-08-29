@@ -190,11 +190,13 @@
 
 > Giữ lại vì đây là ghi log kỹ thuật cần cho việc gỡ lỗi và truy vết dữ liệu cá nhân — không phải màn hình tra cứu/báo cáo (đã lược bỏ, xem cuối file). **Rút gọn cho MVP demo (30/8/2026):** chỉ ghi vài action chính, bỏ ràng buộc transaction chặt và redact chi tiết — mở rộng lại khi luồng chính ổn định.
 
-- [ ] Định nghĩa enum `AuditAction` — **rút gọn: chỉ các action của luồng chính** (`session_created`, `extraction_requested`, `extraction_succeeded`, `extraction_failed`, `field_confirmed`, `session_completed`, `session_cancelled`), không cần đủ danh mục Mục 8.3 của Plan
-- [ ] Viết `AuditService.log(session_id, actor_type, actor_id, action, detail)`
-- [ ] Ghi log tự động mọi lần chuyển trạng thái phiên
+- [x] Định nghĩa enum `AuditAction` — **rút gọn: chỉ các action của luồng chính** (`session_created`, `extraction_requested`, `extraction_succeeded`, `extraction_failed`, `field_confirmed`, `session_completed`, `session_cancelled`), không cần đủ danh mục Mục 8.3 của Plan (`app/domain/audit_action.py`)
+- [x] Viết `AuditService.log(session_id, actor_type, actor_id, action, detail)` (`app/services/audit_service.py`, bọc `AuditRepository`, validate `ip_address`)
+- [ ] Ghi log tự động mọi lần chuyển trạng thái phiên — **để dành cho tầng service điều phối phiên (chưa tồn tại, thuộc phạm vi phần I)**, không thuộc phạm vi E (E chỉ cung cấp cơ chế ghi log, chưa có nơi gọi tự động)
 
 > **Lược bỏ khỏi bản rút gọn:** đảm bảo cùng transaction chặt với thao tác nghiệp vụ (chấp nhận ghi log ngay sau, không cần atomic), loại bỏ giá trị nhạy cảm khỏi `detail` trước khi ghi (tạm không truyền CCCD vào `detail` thay vì xây cơ chế redact riêng) — cứng hóa lại khi chuẩn bị lên môi trường thật.
+
+- [x] Bộ test `tests/domain/test_audit_action.py` (2 test) + `tests/services/test_audit_service.py` (4 test): đủ 7 action, ghi log có/không field tùy chọn, validate IP hợp lệ/không hợp lệ
 
 ---
 
