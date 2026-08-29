@@ -97,7 +97,9 @@
 - [x] Sinh migration đầu tiên tạo toàn bộ bảng theo Mục 8.2 của Plan
 - [x] Viết migration tạo cột tính toán `duration_ms` cho bảng `sessions`
 - [x] Viết migration `REVOKE UPDATE, DELETE` trên `audit_log` và `field_history`
-- [x] Kiểm tra `alembic upgrade head` chạy sạch — đã verify trên SQLite (upgrade/downgrade round-trip + no-drift check); **cần re-verify trên Postgres thật khi Docker sẵn sàng**
+- [x] Kiểm tra `alembic upgrade head` chạy sạch — verify trên SQLite (round-trip + no-drift) **và trên Postgres thật** (docker-compose, `postgres:16-alpine`): `duration_ms` xác nhận là generated column thật, `chk_state`/FK/cascade đúng
+
+> **Hạn chế đã biết (chấp nhận cho MVP, chưa sửa):** migration `REVOKE UPDATE, DELETE ON audit_log/field_history FROM app_user` **không có hiệu lực thật** vì `app_user` (role duy nhất, chạy cả migration lẫn ứng dụng) là **owner** của bảng — Postgres luôn cho owner toàn quyền bất kể REVOKE. Đã verify bằng thực nghiệm: `UPDATE audit_log ... ` bằng `app_user` vẫn thành công. Muốn REVOKE có tác dụng thật cần tách role migration (owner) khỏi role ứng dụng — chưa làm theo yêu cầu ưu tiên tốc độ, cần quay lại trước khi lên production.
 
 ### B4. Repository layer
 

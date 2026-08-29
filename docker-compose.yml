@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tthc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: tthc_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d tthc_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tthc_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # backend / frontend: hoàn thiện ở mục Q (Đóng gói và chạy) khi ứng dụng
+  # đủ chức năng để đóng gói. Trong lúc phát triển, chạy backend trực tiếp
+  # bằng `uv run uvicorn app.main:app --reload` trỏ vào postgres/redis ở trên
+  # (DATABASE_URL/REDIS_URL trong .env dùng localhost:5432/6379).
+
+volumes:
+  postgres_data:
