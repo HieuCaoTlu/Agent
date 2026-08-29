@@ -129,16 +129,23 @@
 
 > **Lược bỏ khỏi bản rút gọn:** kiểm tra điều kiện nghiệp vụ phụ (mọi trường `required` đã xác nhận trước khi `FIELDS_CONFIRMED`, có `dossier_code` trước khi `COMPLETED`...) — để tầng service (I) tự kiểm tra trước khi gọi `transition()`, thay vì state machine tự mang theo `context`.
 
-### C2. Validator trường dữ liệu (rút gọn — 3 validator đại diện)
+### C2. Validator trường dữ liệu
 
 - [x] Định nghĩa kiểu `ValidationResult` (status, message)
 - [x] `cccd_12_digits` — đúng 12 chữ số
 - [x] `vietnamese_name` — chỉ chữ cái tiếng Việt có dấu và khoảng trắng, 2–50 ký tự
 - [x] `required_present` — trường bắt buộc phải có giá trị
+- [x] `vn_phone_10_digits`, `date_not_future`, `date_reasonable_birth`, `in_options`
 - [x] Viết hàm `validate_field(spec, value) -> ValidationResult` chạy toàn bộ validator của trường
 - [x] Viết hàm `validate_all(schema, values) -> dict[str, ValidationResult]`
 
-> **Lược bỏ khỏi bản rút gọn:** `vn_phone_10_digits`, `date_not_future`, `date_reasonable_birth`, `in_options`, registry ánh xạ tên validator → hàm (dùng trực tiếp import trong catalog service thay vì registry động). Thêm lại khi cần hỗ trợ thêm loại trường.
+> **Cập nhật (30/8/2026, khi làm I2):** ban đầu rút gọn chỉ giữ 3 validator
+> đại diện, nhưng catalog thật (D1) tham chiếu đủ 7 tên validator — đã hỏi
+> user và bổ sung 4 validator còn thiếu để `ExtractionService` chạy được với
+> catalog thật, thay vì sửa catalog để né vấn đề. `in_options` cần tham số
+> `options` (từ `FieldSpec.options`) nên `validate_field`/`validate_all` được
+> mở rộng thêm tham số tùy chọn `options`/`field_options` (không phá vỡ
+> chữ ký cũ). Test: `tests/domain/test_validators.py` (38 test, +17).
 
 ### C5. Schema output LLM
 
@@ -352,22 +359,38 @@
 
 ### I2. ExtractionService
 
-- [ ] `extract(session_id, include_turns, only_missing)` — điều phối toàn bộ luồng
-- [ ] Bước 1: gom transcript từ các lượt đã chọn theo lựa chọn của cán bộ (`include_turns`) — không có bước lọc tự động theo chất lượng
-- [ ] Bước 2: lấy field schema từ catalog
-- [ ] Bước 3: che dữ liệu nhạy cảm
-- [ ] Bước 4: gọi LLM provider
-- [ ] Bước 5: parse và validate schema
-- [ ] Bước 6: kiểm chứng nguồn gốc
-- [ ] Bước 7: khôi phục giá trị đã che
-- [ ] Bước 8: chạy validator từng trường
-- [ ] Bước 9: gộp với trạng thái hiện có theo quy tắc merge
-- [ ] Bước 10: sinh cảnh báo và câu hỏi gợi ý
-- [ ] Bước 11: lưu `extractions` và cập nhật `field_states`, ghi `field_history`
-- [ ] Bước 12: ghi audit
-- [ ] Kiểm tra giới hạn `max_extractions_per_session`
-- [ ] Xử lý lỗi ở mọi bước, không để dữ liệu rác lọt lên UI
-- [ ] `amend_field(session_id, field_name, transcript)` — trích xuất một trường (UC4)
+- [x] `extract(session_id, include_turns, only_missing)` — điều phối toàn bộ luồng
+- [x] Bước 1: gom transcript từ các lượt đã chọn theo lựa chọn của cán bộ (`include_turns`) — không có bước lọc tự động theo chất lượng
+- [x] Bước 2: lấy field schema từ catalog
+- [x] Bước 3: che dữ liệu nhạy cảm
+- [x] Bước 4: gọi LLM provider
+- [x] Bước 5: parse và validate schema
+- [x] Bước 6: kiểm chứng nguồn gốc
+- [x] Bước 7: khôi phục giá trị đã che
+- [x] Bước 8: chạy validator từng trường
+- [x] Bước 9: gộp với trạng thái hiện có theo quy tắc merge
+- [x] Bước 10: sinh cảnh báo và câu hỏi gợi ý
+- [x] Bước 11: lưu `extractions` và cập nhật `field_states`, ghi `field_history`
+- [x] Bước 12: ghi audit
+- [x] Kiểm tra giới hạn `max_extractions_per_session`
+- [x] Xử lý lỗi ở mọi bước, không để dữ liệu rác lọt lên UI
+- [x] `amend_field(session_id, field_name, transcript)` — trích xuất một trường (UC4)
+
+> **Hiện thực (30/8/2026):** `app/services/extraction_service.py` —
+> `ExtractionService` (12 bước ở `_run_llm_and_save`, dùng chung cho
+> `extract()` và `amend_field()`) + `ExtractionOutcome` +
+> `SessionNotFoundForExtraction` + `ExtractionLimitExceeded`. Bước 9 (merge)
+> dùng `app/domain/merge.py` — module logic thuần **mới** theo Mục 7.1 của
+> Plan (không nằm trong danh sách rút gọn ban đầu của C, nhưng là điều kiện
+> cần cho I2 nên thêm cùng khuôn mẫu, test riêng `tests/domain/test_merge.py`,
+> 9 test). "Câu hỏi gợi ý" (Bước 10, phần `spoken_hint`) chưa hiện thực ở
+> tầng service này — thuộc phạm vi hiển thị của frontend (M/O), service chỉ
+> trả `warnings` (đã có `field` để tầng UI tự tra `spoken_hint` từ catalog).
+> Redactor (F4) tạo mới mỗi lần gọi (không giữ theo phiên) vì chỉ cần sống
+> trong phạm vi redact→restore của một lượt gọi. Câu hỏi kỹ thuật phát sinh:
+> catalog thật (D1) tham chiếu 4 validator chưa có trong C2 bản rút gọn — đã
+> hỏi user, xem ghi chú ở mục C2. Test: `tests/services/test_extraction_service.py`
+> (12 test).
 
 ### I3. FieldService
 
