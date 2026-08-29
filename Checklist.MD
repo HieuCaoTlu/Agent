@@ -300,29 +300,31 @@
 
 ### H1. Trừu tượng hóa
 
-- [ ] Định nghĩa `TTSProvider` (abstract) với `synthesize()` và `health_check()`
-- [ ] Viết `MockTTSProvider` trả file audio mẫu — dùng để phát triển khi chưa có key thật
-- [ ] Viết factory chọn provider theo `settings.tts_provider`
-- [ ] Kiểm tra hostname `api.blaze.vn` thuộc `approved_ai_hosts` trước khi gọi
+- [x] Định nghĩa `TTSProvider` (abstract) với `synthesize()` và `health_check()` (`app/tts/base.py`)
+- [x] Viết `MockTTSProvider` trả file audio mẫu — dùng để phát triển khi chưa có key thật (`app/tts/mock_provider.py`)
+- [x] Viết factory chọn provider theo `settings.tts_provider` (`app/tts/factory.py`)
+- [x] Kiểm tra hostname `api.blaze.vn` thuộc `approved_ai_hosts` trước khi gọi
 
 ### H2. Blaze TTS — batch (đọc lại toàn bộ nội dung)
 
-- [ ] Viết `BlazeBatchTTS` gọi `POST {BLAZE_BASE_URL}/v1/tts`
-- [ ] Body JSON: `query`, `language: "vi"`, `audio_speed`, `audio_quality`, `audio_format`, `normalization`, `speaker_id`, `model: "v2.0_pro"`
-- [ ] Header `Authorization: Bearer {BLAZE_API_TOKEN}`, `Content-Type: application/json`
-- [ ] Chọn và nghe thử `speaker_id` phù hợp (mẫu: `HN-Nam-1-BL` — giọng Hà Nội)
-- [ ] Xử lý response trả về audio (kiểm tra định dạng response thật: base64 trong JSON hay binary trực tiếp — cần test thực tế)
-- [ ] Lưu audio kết quả vào Redis với TTL ngắn, phục vụ endpoint tải về
+- [x] Viết `BlazeBatchTTS` gọi `POST {BLAZE_BASE_URL}/v1/tts` (`app/tts/blaze_provider.py`)
+- [x] Body JSON: `query`, `language: "vi"`, `audio_speed`, `audio_quality`, `audio_format`, `normalization`, `speaker_id`, `model: "v2.0_pro"`
+- [x] Header `Authorization: Bearer {BLAZE_API_TOKEN}`, `Content-Type: application/json`
+- [x] Chọn và nghe thử `speaker_id` phù hợp (mẫu: `HN-Nam-1-BL` — giọng Hà Nội) — dùng làm mặc định trong config, **chưa nghe thử thật** (cần Blaze API token thật)
+- [x] Xử lý response trả về audio — hỗ trợ cả hai khả năng (binary theo `Content-Type: audio/*`, hoặc JSON base64), quyết định dựa vào response header; **chưa xác minh được với API thật** (cần token thật để test tích hợp, ghi rõ trong docstring `blaze_provider.py`)
+- [x] Lưu audio kết quả vào Redis với TTL ngắn, phục vụ endpoint tải về (`app/services/tts_cache_service.py`, TTL mặc định 300s)
 
 > **Lược bỏ khỏi MVP:** TTS real-time (WebSocket) — dùng batch (H2) làm mặc định và duy nhất, vì đọc lại tại quầy không yêu cầu độ trễ thấp như hội thoại.
 
 ### H3. Nội dung đọc lại
 
-- [ ] Viết hàm dựng nội dung đọc lại từ `readback_template` của catalog và giá trị đã xác nhận
-- [ ] Che số CCCD trong nội dung gửi tới TTS
-- [ ] Đọc số điện thoại thành từng chữ số để người nghe dễ kiểm tra
-- [ ] Định dạng ngày tháng thành dạng đọc tự nhiên ("ngày mùng 5 tháng 3 năm 2026")
-- [ ] Fallback khi TTS lỗi: trả về văn bản để frontend hiển thị cỡ chữ lớn
+- [x] Viết hàm dựng nội dung đọc lại từ `readback_template` của catalog và giá trị đã xác nhận (`app/tts/readback.py`)
+- [x] Che số CCCD trong nội dung gửi tới TTS (chỉ đọc 4 số cuối)
+- [x] Đọc số điện thoại thành từng chữ số để người nghe dễ kiểm tra
+- [x] Định dạng ngày tháng thành dạng đọc tự nhiên ("ngày mùng 5 tháng 3 năm 2026")
+- [x] Fallback khi TTS lỗi: trả về văn bản để frontend hiển thị cỡ chữ lớn (`build_fallback_text`, dùng chung logic định dạng với bản đọc)
+
+- [x] Bộ test `tests/tts/` (22 test) + `tests/services/test_tts_cache_service.py` (4 test): mock provider, factory, Blaze provider (mock hóa `httpx.AsyncClient` — cả 2 dạng response, lỗi mạng/API), readback (định dạng ngày/điện thoại/che CCCD, placeholder khi thiếu giá trị, fallback khớp nội dung đọc), TTS cache (lưu/lấy lại theo TTL)
 
 ---
 
