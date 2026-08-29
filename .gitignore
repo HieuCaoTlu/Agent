@@ -30,4 +30,5 @@ Thumbs.db
 # --- Logs / dữ liệu tạm ---
 *.log
 *.sqlite3
+*.db
 /tmp/

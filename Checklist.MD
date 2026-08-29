@@ -71,40 +71,43 @@
 
 ### B1. Kết nối
 
-- [ ] Viết `app/db/database.py`: async engine, `async_sessionmaker`, dependency `get_db()`
-- [ ] Viết `app/db/redis_client.py`: connection pool, dependency `get_redis()`
+- [x] Viết `app/db/database.py`: async engine, `async_sessionmaker`, dependency `get_db()`
+- [x] Viết `app/db/redis_client.py`: connection pool, dependency `get_redis()`
 
 ### B2. SQLAlchemy models
 
-- [ ] `app/models/base.py` — `DeclarativeBase`, mixin `created_at`/`updated_at`
-- [ ] `app/models/session.py` — model `Session` (gồm quan hệ tự tham chiếu `parent_session_id`)
-- [ ] `app/models/voice.py` — model `VoiceTurn`
-- [ ] `app/models/extraction.py` — model `Extraction`, `FieldState`, `FieldHistory`
-- [ ] `app/models/confirmation.py` — model `CitizenConfirmation`
-- [ ] `app/models/audit.py` — model `AuditLog`
-- [ ] Khai báo đầy đủ relationship và cascade delete
-- [ ] Khai báo `CheckConstraint` cho cột `state` của bảng `sessions`
-- [ ] Khai báo `UniqueConstraint` cho `(session_id, turn_number)` và `(session_id, field_name)`
+- [x] `app/models/base.py` — `DeclarativeBase`, mixin `created_at`/`updated_at`
+- [x] `app/models/session.py` — model `Session` (gồm quan hệ tự tham chiếu `parent_session_id`)
+- [x] `app/models/voice.py` — model `VoiceTurn`
+- [x] `app/models/extraction.py` — model `Extraction`, `FieldState`, `FieldHistory`
+- [x] `app/models/confirmation.py` — model `CitizenConfirmation`
+- [x] `app/models/audit.py` — model `AuditLog`
+- [x] Khai báo đầy đủ relationship và cascade delete
+- [x] Khai báo `CheckConstraint` cho cột `state` của bảng `sessions`
+- [x] Khai báo `UniqueConstraint` cho `(session_id, turn_number)` và `(session_id, field_name)`
+
+> **Ghi chú kỹ thuật:** để phát triển/kiểm thử được khi chưa có Docker/Postgres sẵn, các model dùng kiểu đa dialect tự viết trong `app/models/base.py` (`GUID`, `BigAutoIncrement`) — tương đương UUID/BIGSERIAL thật trên Postgres (production), map sang kiểu tương thích trên SQLite (chỉ dùng cho dev/test cục bộ, xem `tests/conftest.py`). Không ảnh hưởng schema Postgres thật.
 
 > **Lược bỏ:** model `StaffUser` — không có bảng người dùng riêng ở MVP này (xem [Đã lược bỏ khỏi MVP](#đã-lược-bỏ-khỏi-mvp)). Các cột từng tham chiếu `staff_id`/`confirmed_by`/`recorded_by` giữ nguyên kiểu nhưng không ràng buộc khóa ngoại tới bảng người dùng — dùng một chuỗi định danh cán bộ đơn giản (ví dụ tên nhập tay lúc tạo phiên) thay vì tài khoản đăng nhập.
 
 ### B3. Migration
 
-- [ ] Khởi tạo Alembic, cấu hình `alembic.ini` đọc `database_url` từ settings
-- [ ] Cấu hình `env.py` hỗ trợ async engine
-- [ ] Sinh migration đầu tiên tạo toàn bộ bảng theo Mục 8.2 của Plan
-- [ ] Viết migration tạo cột tính toán `duration_ms` cho bảng `sessions`
-- [ ] Viết migration `REVOKE UPDATE, DELETE` trên `audit_log` và `field_history`
-- [ ] Kiểm tra `alembic upgrade head` chạy sạch
+- [x] Khởi tạo Alembic, cấu hình `alembic.ini` đọc `database_url` từ settings
+- [x] Cấu hình `env.py` hỗ trợ async engine
+- [x] Sinh migration đầu tiên tạo toàn bộ bảng theo Mục 8.2 của Plan
+- [x] Viết migration tạo cột tính toán `duration_ms` cho bảng `sessions`
+- [x] Viết migration `REVOKE UPDATE, DELETE` trên `audit_log` và `field_history`
+- [x] Kiểm tra `alembic upgrade head` chạy sạch — đã verify trên SQLite (upgrade/downgrade round-trip + no-drift check); **cần re-verify trên Postgres thật khi Docker sẵn sàng**
 
 ### B4. Repository layer
 
-- [ ] `SessionRepository` — CRUD phiên, truy vấn theo ngày/trạng thái
-- [ ] `VoiceTurnRepository` — thêm lượt thoại, lấy danh sách theo phiên, tự tăng `turn_number`
-- [ ] `ExtractionRepository` — lưu kết quả trích xuất, lấy lịch sử
-- [ ] `FieldStateRepository` — upsert trạng thái trường, lấy toàn bộ trường của phiên
-- [ ] `FieldHistoryRepository` — chỉ có hàm append, không có update/delete
-- [ ] `AuditRepository` — append log, truy vấn theo phiên/hành động/thời gian
+- [x] `SessionRepository` — CRUD phiên, truy vấn theo ngày/trạng thái
+- [x] `VoiceTurnRepository` — thêm lượt thoại, lấy danh sách theo phiên, tự tăng `turn_number`
+- [x] `ExtractionRepository` — lưu kết quả trích xuất, lấy lịch sử
+- [x] `FieldStateRepository` — upsert trạng thái trường, lấy toàn bộ trường của phiên
+- [x] `FieldHistoryRepository` — chỉ có hàm append, không có update/delete
+- [x] `AuditRepository` — append log, truy vấn theo phiên/hành động/thời gian
+- [x] Bộ test `tests/repositories/` (22 test) phủ CRUD, unique constraint, cascade delete, append-only, truy vấn theo ngày/trạng thái/hành động
 
 ---
 
