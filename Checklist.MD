@@ -260,37 +260,39 @@
 
 ### G1. Trừu tượng hóa
 
-- [ ] Định nghĩa `STTProvider` (abstract) với `transcribe_stream()`, `transcribe_file()` và `health_check()`
-- [ ] Định nghĩa dataclass `TranscriptChunk` (text, is_final, provider, latency_ms) — **không có field `confidence`**
-- [ ] Viết `MockSTTProvider` phát lại transcript có sẵn theo kịch bản — dùng để phát triển khi chưa có key thật
-- [ ] Viết factory chọn provider theo `settings.stt_provider`
-- [ ] Kiểm tra hostname `api.blaze.vn` thuộc `approved_ai_hosts` trước khi gọi
+- [x] Định nghĩa `STTProvider` (abstract) với `transcribe_stream()`, `transcribe_file()` và `health_check()` (`app/stt/base.py`)
+- [x] Định nghĩa dataclass `TranscriptChunk` (text, is_final, provider, latency_ms) — **không có field `confidence`**
+- [x] Viết `MockSTTProvider` phát lại transcript có sẵn theo kịch bản — dùng để phát triển khi chưa có key thật (`app/stt/mock_provider.py`)
+- [x] Viết factory chọn provider theo `settings.stt_provider` (`app/stt/factory.py`)
+- [x] Kiểm tra hostname `api.blaze.vn` thuộc `approved_ai_hosts` trước khi gọi (`UnapprovedHostError`)
 
 ### G2. Blaze STT — streaming (luồng ghi âm chính tại quầy)
 
-- [ ] Viết `BlazeStreamingSTT` mở kết nối `WS {BLAZE_WS_BASE_URL}/v1/stt/realtime`
-- [ ] Gửi message xác thực đầu tiên: `{"token": BLAZE_API_TOKEN, "language": "vi", "model": "stt-stream-1.5"}`
-- [ ] Tùy chọn: gửi kèm `topic`, `context`, `bias_keywords` để tăng độ chính xác thuật ngữ hành chính (chỉ hỗ trợ `stt-stream-1.5`)
-- [ ] Chờ message `{"type": "ready"}` trước khi bắt đầu gửi audio
-- [ ] Gửi audio nhị phân PCM 16kHz, mono, 16-bit qua `ws.send(bytes)` — khớp định dạng frontend ghi âm (xem M4)
-- [ ] Nhận và phân biệt message `{"type": "partial"}` và `{"type": "final"}`, đọc field `text`
-- [ ] Đóng kết nối WebSocket đúng cách khi kết thúc lượt ghi âm hoặc hủy phiên
-- [ ] Xử lý mất kết nối WebSocket giữa chừng — không để mất transcript đã nhận được
-- [ ] Bọc toàn bộ bằng interface `STTProvider.transcribe_stream()` để tầng trên không biết chi tiết giao thức Blaze
+- [x] Viết `BlazeSTTProvider.transcribe_stream()` mở kết nối `WS {BLAZE_WS_BASE_URL}/v1/stt/realtime` (`app/stt/blaze_provider.py`)
+- [x] Gửi message xác thực đầu tiên: `{"token": BLAZE_API_TOKEN, "language": "vi", "model": "stt-stream-1.5"}`
+- [x] Tùy chọn: gửi kèm `topic`, `context`, `bias_keywords` để tăng độ chính xác thuật ngữ hành chính (chỉ hỗ trợ `stt-stream-1.5`)
+- [x] Chờ message `{"type": "ready"}` trước khi bắt đầu gửi audio
+- [x] Gửi audio nhị phân qua `ws.send(bytes)` — định dạng PCM 16kHz/mono/16-bit là hợp đồng với frontend (M4, chưa tồn tại), provider không tự validate định dạng byte
+- [x] Nhận và phân biệt message `{"type": "partial"}` và `{"type": "final"}`, đọc field `text`
+- [x] Đóng kết nối WebSocket đúng cách khi kết thúc lượt ghi âm hoặc hủy phiên (dùng `async with websockets.connect(...)`, tự đóng khi thoát block)
+- [x] Xử lý mất kết nối WebSocket giữa chừng — không để mất transcript đã nhận được (mọi chunk đã `yield` trước khi lỗi vẫn giữ nguyên ở tầng gọi, lỗi chỉ ném ra sau khi ngừng nhận thêm được)
+- [x] Bọc toàn bộ bằng interface `STTProvider.transcribe_stream()` để tầng trên không biết chi tiết giao thức Blaze
 
 ### G3. Blaze STT — non-streaming (dùng cho UC4 amend một trường)
 
-- [ ] Viết `BlazeFileSTT` gọi `POST {BLAZE_BASE_URL}/v1/stt/execute?model=stt-async-1.5`
-- [ ] Gửi file audio dạng `multipart/form-data`, field `audio_file`
-- [ ] Header `Authorization: Bearer {BLAZE_API_TOKEN}` (không có `Content-Type` thủ công — để `requests`/`httpx` tự set boundary)
-- [ ] Parse response JSON, ánh xạ sang `TranscriptChunk`
-- [ ] Retry có giới hạn cho lỗi mạng tạm thời (không retry vô hạn vì audio hữu hạn)
+- [x] Viết `BlazeSTTProvider.transcribe_file()` gọi `POST {BLAZE_BASE_URL}/v1/stt/execute?model=stt-async-1.5`
+- [x] Gửi file audio dạng `multipart/form-data`, field `audio_file`
+- [x] Header `Authorization: Bearer {BLAZE_API_TOKEN}` (không có `Content-Type` thủ công — để `httpx` tự set boundary)
+- [x] Parse response JSON, ánh xạ sang `TranscriptChunk`
+- [x] Retry có giới hạn cho lỗi mạng tạm thời (không retry vô hạn vì audio hữu hạn) — `_MAX_FILE_RETRIES = 2`, không retry lỗi API cố định (4xx/5xx)
 
 ### G4. Kiểm soát chất lượng (thay cho ngưỡng confidence)
 
-- [ ] Không retry khi STT lỗi hẳn (audio đã trôi qua theo thời gian thực), báo lỗi ngay cho frontend
-- [ ] Hiển thị mọi transcript cho cán bộ xem trước khi trích xuất — không tự động lọc đoạn nào
-- [ ] Cung cấp nút "Sửa transcript" và "Hỏi lại" cho **mọi** lượt thoại
+- [x] Không retry khi STT lỗi hẳn (audio đã trôi qua theo thời gian thực), báo lỗi ngay cho frontend — `transcribe_stream`/`transcribe_file` ném exception thẳng, không có logic retry-vô-hạn nào ở tầng provider
+- [ ] Hiển thị mọi transcript cho cán bộ xem trước khi trích xuất — không tự động lọc đoạn nào — **thuộc tầng frontend (M, chưa tồn tại)**, không phải việc của tầng STT
+- [ ] Cung cấp nút "Sửa transcript" và "Hỏi lại" cho **mọi** lượt thoại — **thuộc tầng frontend (M, chưa tồn tại)**
+
+- [x] Bộ test `tests/stt/` (15 test): mock provider (kịch bản, TranscriptChunk không có field confidence), factory (mock/blaze/chặn host), Blaze provider (mock hóa `websockets.connect`/`httpx.AsyncClient` — auth message đúng định dạng, phân biệt partial/final, lỗi kết nối không nuốt transcript đã nhận, retry file thành công/hết lượt/không retry lỗi API)
 
 ---
 
