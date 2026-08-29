@@ -36,34 +36,34 @@
 
 ### A1. Cấu trúc và công cụ
 
-- [ ] Tạo `pyproject.toml` khai báo metadata dự án, Python 3.12
-- [ ] Khai báo dependency chính: `fastapi`, `uvicorn[standard]`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic`, `pydantic-settings`, `redis`, `httpx`, `anthropic`, `structlog`
-- [ ] Khai báo dependency dev: `pytest`, `pytest-asyncio`, `respx`, `ruff`
-- [ ] Chạy `uv sync`, xác nhận sinh được `uv.lock`
-- [ ] Tạo cây thư mục cơ bản (`app/`, `tests/`, `frontend/`, `scripts/`, `migrations/`)
-- [ ] Tạo file `__init__.py` cho mọi package Python
-- [ ] Tạo `.gitignore` — bắt buộc có `.env`, `.venv/`, `__pycache__/`, `*.pyc`, `node_modules/`, `dist/`
-- [ ] Khởi tạo git repository, commit đầu tiên
+- [x] Tạo `pyproject.toml` khai báo metadata dự án, Python 3.12
+- [x] Khai báo dependency chính: `fastapi`, `uvicorn[standard]`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic`, `pydantic-settings`, `redis`, `httpx`, `anthropic`, `structlog`
+- [x] Khai báo dependency dev: `pytest`, `pytest-asyncio`, `respx`, `ruff`
+- [x] Chạy `uv sync`, xác nhận sinh được `uv.lock`
+- [x] Tạo cây thư mục cơ bản (`app/`, `tests/`, `frontend/`, `scripts/`, `migrations/`)
+- [x] Tạo file `__init__.py` cho mọi package Python
+- [x] Tạo `.gitignore` — bắt buộc có `.env`, `.venv/`, `__pycache__/`, `*.pyc`, `node_modules/`, `dist/`
+- [x] Khởi tạo git repository, commit đầu tiên
 
 ### A2. Cấu hình
 
-- [ ] Viết `app/config.py` với class `Settings(BaseSettings)`
+- [x] Viết `app/config.py` với class `Settings(BaseSettings)`
 - [x] Tạo `.env.example` liệt kê đầy đủ biến môi trường — đã có sẵn tại [.env.example](.env.example), gồm cấu hình Blaze STT/TTS thật (base URL, model, speaker_id...)
-- [ ] Thêm field cấu hình Blaze vào `Settings`: `blaze_api_token`, `blaze_base_url`, `blaze_ws_base_url`, `blaze_stt_async_model`, `blaze_stt_stream_model`, `blaze_stt_language`, `blaze_stt_topic`, `blaze_stt_context`, `blaze_stt_bias_keywords` (list), `blaze_tts_model`, `blaze_tts_realtime_model`, `blaze_tts_speaker_id`, `blaze_tts_audio_format`, `blaze_tts_audio_quality`, `blaze_tts_audio_speed`, `blaze_tts_normalization`, `blaze_tts_pcm_sample_rate`
-- [ ] Thêm validator bắt buộc có `anthropic_api_key` khi `llm_provider="claude"`
-- [ ] Thêm validator bắt buộc có `blaze_api_token` khi `stt_provider="blaze"` hoặc `tts_provider="blaze"`
-- [ ] Parse `approved_ai_hosts` và `blaze_stt_bias_keywords` từ chuỗi phân cách dấu phẩy trong `.env` thành `list[str]`
-- [ ] Viết hàm `get_settings()` có cache (`lru_cache`) để dùng làm FastAPI dependency
+- [x] Thêm field cấu hình Blaze vào `Settings`: `blaze_api_token`, `blaze_base_url`, `blaze_ws_base_url`, `blaze_stt_async_model`, `blaze_stt_stream_model`, `blaze_stt_language`, `blaze_stt_topic`, `blaze_stt_context`, `blaze_stt_bias_keywords` (list), `blaze_tts_model`, `blaze_tts_realtime_model`, `blaze_tts_speaker_id`, `blaze_tts_audio_format`, `blaze_tts_audio_quality`, `blaze_tts_audio_speed`, `blaze_tts_normalization`, `blaze_tts_pcm_sample_rate`
+- [x] Thêm validator bắt buộc có `anthropic_api_key` khi `llm_provider="claude"`
+- [x] Thêm validator bắt buộc có `blaze_api_token` khi `stt_provider="blaze"` hoặc `tts_provider="blaze"`
+- [x] Parse `approved_ai_hosts` và `blaze_stt_bias_keywords` từ chuỗi phân cách dấu phẩy trong `.env` thành `list[str]`
+- [x] Viết hàm `get_settings()` có cache (`lru_cache`) để dùng làm FastAPI dependency
 
 ### A3. Ứng dụng FastAPI
 
-- [ ] Viết `app/main.py` khởi tạo FastAPI với `title`, `version`
-- [ ] Cấu hình CORS middleware, chỉ cho phép origin của frontend
-- [ ] Viết exception handler chung trả về định dạng lỗi thống nhất theo Mục 9.1 của Plan
-- [ ] Viết exception handler riêng cho `InvalidTransitionError` → HTTP 409
-- [ ] Viết exception handler riêng cho `ProcedureNotFound` → HTTP 404
-- [ ] Đăng ký lifespan handler: kết nối/ngắt DB, Redis, nạp catalog khi khởi động
-- [ ] Endpoint `GET /health` — kiểm tra DB, Redis, các provider AI
+- [x] Viết `app/main.py` khởi tạo FastAPI với `title`, `version`
+- [x] Cấu hình CORS middleware, chỉ cho phép origin của frontend
+- [x] Viết exception handler chung trả về định dạng lỗi thống nhất theo Mục 9.1 của Plan
+- [x] Viết exception handler riêng cho `InvalidTransitionError` → HTTP 409
+- [x] Viết exception handler riêng cho `ProcedureNotFound` → HTTP 404
+- [x] Đăng ký lifespan handler: kết nối/ngắt DB, Redis, nạp catalog khi khởi động (khung sẵn, TODO nối B1/D2)
+- [x] Endpoint `GET /health` — kiểm tra DB, Redis, các provider AI (khung sẵn, health_check thật nối ở B/F/G/H)
 
 ---
 
