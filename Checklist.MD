@@ -117,63 +117,47 @@
 
 > Toàn bộ mục này **không được** import bất kỳ thứ gì liên quan I/O (không DB, không HTTP, không Redis).
 
-### C1. State machine
+> **Rút gọn cho MVP demo (quyết định 30/8/2026):** C3 (chuẩn hóa dữ liệu tiếng Việt) và C4 (quy tắc gộp đa lượt) **cắt hẳn khỏi phạm vi này** — không cần cho việc chứng minh AI trích xuất hoạt động; Claude tự xử lý ngôn ngữ tự nhiên đủ tốt mà không cần tiền xử lý chuẩn hóa, và gộp đa lượt chỉ cần khi có nhiều lần trích xuất trên cùng phiên. C1/C2/C6 rút gọn xuống bản tối thiểu, có thể mở rộng lại sau khi luồng chính chạy được. Xem thêm [Đã lược bỏ khỏi MVP](#đã-lược-bỏ-khỏi-mvp).
 
-- [ ] Định nghĩa enum `SessionState` với 12 trạng thái
-- [ ] Định nghĩa enum `SessionEvent` với đầy đủ sự kiện
-- [ ] Khai báo bảng chuyển đổi hợp lệ theo Mục 5.3 của Plan
-- [ ] Viết hàm `transition(current, event, context) -> SessionState`
-- [ ] Định nghĩa exception `InvalidTransitionError` kèm thông báo tiếng Việt rõ ràng
-- [ ] Kiểm tra điều kiện chuyển sang `FIELDS_CONFIRMED`: mọi trường `required` đã xác nhận
-- [ ] Kiểm tra điều kiện chuyển sang `COMPLETED`: có `dossier_code`
+### C1. State machine (rút gọn)
 
-### C2. Validator trường dữ liệu
+- [x] Định nghĩa enum `SessionState` với 12 trạng thái
+- [x] Định nghĩa enum `SessionEvent` với đầy đủ sự kiện
+- [x] Khai báo bảng chuyển đổi hợp lệ theo Mục 5.3 của Plan
+- [x] Viết hàm `transition(current, event) -> SessionState` — **bản rút gọn: không nhận `context`/điều kiện phụ**, chỉ kiểm tra cạnh có hợp lệ trong bảng chuyển đổi hay không
+- [x] Định nghĩa exception `InvalidTransitionError` kèm thông báo tiếng Việt rõ ràng
 
-- [ ] Định nghĩa kiểu `ValidationResult` (status, message)
-- [ ] `cccd_12_digits` — đúng 12 chữ số
-- [ ] `vn_phone_10_digits` — 10 chữ số, đầu số hợp lệ 03/05/07/08/09
-- [ ] `date_not_future` — không phải ngày tương lai
-- [ ] `date_reasonable_birth` — trong khoảng 130 năm
-- [ ] `vietnamese_name` — chỉ chữ cái tiếng Việt có dấu và khoảng trắng, 2–50 ký tự
-- [ ] `in_options` — thuộc danh sách `options` của trường enum
-- [ ] `required_present` — trường bắt buộc phải có giá trị
-- [ ] Viết registry ánh xạ tên validator → hàm, dùng cho catalog
-- [ ] Viết hàm `validate_field(spec, value) -> ValidationResult` chạy toàn bộ validator của trường
-- [ ] Viết hàm `validate_all(schema, values) -> dict[str, ValidationResult]`
+> **Lược bỏ khỏi bản rút gọn:** kiểm tra điều kiện nghiệp vụ phụ (mọi trường `required` đã xác nhận trước khi `FIELDS_CONFIRMED`, có `dossier_code` trước khi `COMPLETED`...) — để tầng service (I) tự kiểm tra trước khi gọi `transition()`, thay vì state machine tự mang theo `context`.
 
-### C3. Chuẩn hóa dữ liệu tiếng Việt
+### C2. Validator trường dữ liệu (rút gọn — 3 validator đại diện)
 
-- [ ] Chuẩn hóa ngày tháng nói bằng lời: "mùng 5 tháng 3 năm 2026", "5/3/2026", "năm nay" → định dạng chuẩn
-- [ ] Chuẩn hóa số nói bằng chữ: "không tám một hai..." → chuỗi số
-- [ ] Chuẩn hóa họ tên: viết hoa chữ cái đầu, gộp khoảng trắng thừa
-- [ ] Chuẩn hóa số điện thoại: bỏ dấu chấm, gạch ngang, khoảng trắng
-- [ ] Chuẩn hóa giới tính: "trai"/"nam"/"con trai" → "Nam"
+- [x] Định nghĩa kiểu `ValidationResult` (status, message)
+- [x] `cccd_12_digits` — đúng 12 chữ số
+- [x] `vietnamese_name` — chỉ chữ cái tiếng Việt có dấu và khoảng trắng, 2–50 ký tự
+- [x] `required_present` — trường bắt buộc phải có giá trị
+- [x] Viết hàm `validate_field(spec, value) -> ValidationResult` chạy toàn bộ validator của trường
+- [x] Viết hàm `validate_all(schema, values) -> dict[str, ValidationResult]`
 
-### C4. Quy tắc gộp đa lượt
-
-- [ ] Định nghĩa kiểu `MergeDecision` (giá trị mới, có ghi đè không, cảnh báo phát sinh)
-- [ ] Hiện thực bảng quy tắc 4 trường hợp theo Mục 7.1 của Plan
-- [ ] Xử lý: trường đã xác nhận **không bị** ghi đè, sinh cảnh báo `conflict_with_confirmed`
-- [ ] Xử lý: giá trị mới `MISSING` không xóa giá trị cũ
-- [ ] Viết hàm `merge_extraction(current_states, new_extraction) -> list[MergeDecision]`
+> **Lược bỏ khỏi bản rút gọn:** `vn_phone_10_digits`, `date_not_future`, `date_reasonable_birth`, `in_options`, registry ánh xạ tên validator → hàm (dùng trực tiếp import trong catalog service thay vì registry động). Thêm lại khi cần hỗ trợ thêm loại trường.
 
 ### C5. Schema output LLM
 
-- [ ] Định nghĩa `ExtractedField` (name, status, value, confidence, evidence, reason)
-- [ ] Định nghĩa `ExtractionResult` (fields, observations)
-- [ ] Định nghĩa các Literal type: `Confidence`, `FieldStatus`
-- [ ] Viết hàm parse JSON có xử lý lỗi, không ném exception ra ngoài
-- [ ] Viết hàm sinh JSON Schema từ Pydantic model để đưa vào tool definition của LLM
+- [x] Định nghĩa `ExtractedField` (name, status, value, confidence, evidence, reason)
+- [x] Định nghĩa `ExtractionResult` (fields, observations)
+- [x] Định nghĩa các Literal type: `Confidence`, `FieldStatus`
+- [x] Viết hàm parse JSON có xử lý lỗi, không ném exception ra ngoài
+- [x] Viết hàm sinh JSON Schema từ Pydantic model để đưa vào tool definition của LLM
 
-### C6. Sinh cảnh báo
+### C6. Sinh cảnh báo (rút gọn — 2 loại)
 
-- [ ] Định nghĩa kiểu `Warning` (severity, field, message, code)
-- [ ] Sinh cảnh báo `error` khi thiếu trường bắt buộc
-- [ ] Sinh cảnh báo `warning` khi trường `UNCLEAR`
-- [ ] Sinh cảnh báo `warning` khi validator báo sai định dạng
-- [ ] Sinh cảnh báo `warning` khi giá trị không truy vết được về transcript
-- [ ] Sắp xếp cảnh báo theo mức độ nghiêm trọng
-- [ ] Sinh câu hỏi gợi ý cho cán bộ từ `spoken_hint` của trường còn thiếu
+- [x] Định nghĩa kiểu `Warning` (severity, field, message, code)
+- [x] Sinh cảnh báo `error` khi thiếu trường bắt buộc
+- [x] Sinh cảnh báo `warning` khi trường `UNCLEAR`
+- [x] Sắp xếp cảnh báo theo mức độ nghiêm trọng
+
+> **Lược bỏ khỏi bản rút gọn:** cảnh báo khi validator báo sai định dạng, cảnh báo khi giá trị không truy vết được (gộp chung vào luồng warning cơ bản ở trên thay vì tách riêng loại), câu hỏi gợi ý từ `spoken_hint` (chưa cần khi UI chưa hiển thị câu hỏi gợi ý).
+
+- [x] Bộ test `tests/domain/` (44 test) phủ C1/C2/C5/C6: toàn bộ cạnh chuyển đổi hợp lệ + CANCEL + trạng thái kết thúc, 3 validator với ca hợp lệ/không hợp lệ, parse JSON hợp lệ/lỗi định dạng/lệch schema, sinh cảnh báo error/warning + sắp xếp mức độ nghiêm trọng
 
 ---
 
@@ -201,15 +185,15 @@
 
 ---
 
-## E. Audit logging
+## E. Audit logging (rút gọn)
 
-> Giữ lại vì đây là ghi log kỹ thuật cần cho việc gỡ lỗi và truy vết dữ liệu cá nhân — không phải màn hình tra cứu/báo cáo (đã lược bỏ, xem cuối file).
+> Giữ lại vì đây là ghi log kỹ thuật cần cho việc gỡ lỗi và truy vết dữ liệu cá nhân — không phải màn hình tra cứu/báo cáo (đã lược bỏ, xem cuối file). **Rút gọn cho MVP demo (30/8/2026):** chỉ ghi vài action chính, bỏ ràng buộc transaction chặt và redact chi tiết — mở rộng lại khi luồng chính ổn định.
 
-- [ ] Định nghĩa enum `AuditAction` với đầy đủ hành động theo Mục 8.3 của Plan
+- [ ] Định nghĩa enum `AuditAction` — **rút gọn: chỉ các action của luồng chính** (`session_created`, `extraction_requested`, `extraction_succeeded`, `extraction_failed`, `field_confirmed`, `session_completed`, `session_cancelled`), không cần đủ danh mục Mục 8.3 của Plan
 - [ ] Viết `AuditService.log(session_id, actor_type, actor_id, action, detail)`
-- [ ] Đảm bảo ghi audit nằm cùng transaction với thao tác nghiệp vụ
 - [ ] Ghi log tự động mọi lần chuyển trạng thái phiên
-- [ ] Loại bỏ giá trị nhạy cảm khỏi `detail` trước khi ghi (không lưu CCCD nguyên vẹn)
+
+> **Lược bỏ khỏi bản rút gọn:** đảm bảo cùng transaction chặt với thao tác nghiệp vụ (chấp nhận ghi log ngay sau, không cần atomic), loại bỏ giá trị nhạy cảm khỏi `detail` trước khi ghi (tạm không truyền CCCD vào `detail` thay vì xây cơ chế redact riêng) — cứng hóa lại khi chuẩn bị lên môi trường thật.
 
 ---
 
@@ -597,5 +581,26 @@
 - [ ] Viết `Dockerfile` cho backend
 - [ ] Viết `README.md` hướng dẫn chạy local: cài đặt, biến môi trường, migration, seed catalog
 - [ ] Script `scripts/run_dev.sh` hoặc lệnh `make dev` khởi động backend + frontend cùng lúc
+
+---
+
+## Đã lược bỏ khỏi MVP
+
+Tổng hợp mọi hạng mục đã quyết định lược bỏ hoặc rút gọn khỏi phạm vi MVP này, kèm lý do — để tránh hiểu nhầm là "quên làm". Thêm lại khi có nhu cầu thật (nhiều người dùng đồng thời, chuẩn bị lên môi trường thật, mở rộng thêm loại trường/thủ tục...).
+
+| Hạng mục | Trạng thái | Lý do |
+|---|---|---|
+| Đăng nhập/phân quyền nhiều vai trò (`staff_users`, JWT, `/auth/*`) | Lược bỏ hẳn | MVP dùng trong mạng nội bộ điểm hỗ trợ, một cán bộ/máy; không cần phân quyền để chứng minh luồng cốt lõi |
+| Dashboard thống kê/báo cáo (KPI-2, KPI-3, KPI-6) | Lược bỏ hẳn | Cần dữ liệu vận hành thật tích lũy mới có ý nghĩa; không phải luồng tương tác cốt lõi |
+| Bộ test đầy đủ (P) | Rút gọn | Chỉ giữ test bảo vệ nguyên tắc lõi (chống hallucination, state machine, không có bulk-confirm) và test thủ công luồng chính |
+| Màn hình `/login`, `/audit`, `/stats`, `/admin/users` | Lược bỏ hẳn | Đi cùng với việc bỏ đăng nhập/phân quyền và dashboard ở trên |
+| **C3 — Chuẩn hóa dữ liệu tiếng Việt** (ngày/số nói bằng lời, giới tính...) | **Cắt hẳn (30/8/2026)** | Không cần cho việc chứng minh AI trích xuất hoạt động; Claude tự xử lý ngôn ngữ tự nhiên đủ tốt mà không cần tiền xử lý chuẩn hóa riêng |
+| **C4 — Quy tắc gộp đa lượt** (`MergeDecision`, merge 4 trường hợp) | **Cắt hẳn (30/8/2026)** | Chỉ cần khi có nhiều lần trích xuất trên cùng phiên cần hợp nhất; demo một lần trích xuất là đủ |
+| **C1 — điều kiện phụ của state machine** (`context`, kiểm tra required-confirmed/dossier_code trong `transition()`) | Rút gọn (30/8/2026) | Chuyển trách nhiệm kiểm tra điều kiện nghiệp vụ sang tầng service (I), state machine chỉ còn kiểm tra cạnh chuyển đổi hợp lệ |
+| **C2 — validator** (`vn_phone_10_digits`, `date_not_future`, `date_reasonable_birth`, `in_options`, registry động) | Rút gọn còn 3 validator đại diện (30/8/2026) | Đủ để chứng minh cơ chế validator hoạt động; thêm lại khi hỗ trợ thêm loại trường |
+| **C6 — cảnh báo** (warning riêng cho sai định dạng / không truy vết được, câu hỏi gợi ý từ `spoken_hint`) | Rút gọn còn 2 loại cảnh báo (30/8/2026) | UI chưa hiển thị câu hỏi gợi ý; các loại cảnh báo gộp chung vào luồng cơ bản |
+| **E — Audit logging** (đủ danh mục `AuditAction` theo Mục 8.3, ràng buộc transaction chặt, redact `detail`) | Rút gọn còn action của luồng chính (30/8/2026) | Đủ để truy vết luồng chính khi gỡ lỗi; cứng hóa lại (transaction atomic, redact PII trong detail) trước khi lên môi trường thật |
+| TTS real-time (WebSocket), circuit breaker nhiều trạng thái, giới hạn theo cán bộ/giờ | Lược bỏ hẳn | Đã ghi chú tại chỗ ở mục H và L — không cần cho quầy hỗ trợ có cán bộ, một phiên tại một thời điểm |
+| Model `StaffUser` (bảng người dùng riêng) | Lược bỏ hẳn | Đã ghi chú tại chỗ ở mục B2 — dùng chuỗi tên cán bộ thay vì tài khoản đăng nhập |
 </content>
 </invoke>
