@@ -332,13 +332,23 @@
 
 ### I1. SessionService
 
-- [ ] `create_session(staff_name, parent_session_id, mode)` — **tạo phiên mới**, ghi audit
-- [ ] `get_session_state(session_id)` — trả trạng thái đầy đủ gồm mọi trường và cảnh báo
-- [ ] `record_consent(session_id, consented)` — ghi nhận đồng ý của người dân
-- [ ] `select_procedure(session_id, code)` — kiểm tra catalog, khởi tạo `field_states` rỗng cho mọi trường
-- [ ] `cancel_session(session_id, reason)`
-- [ ] `complete_session(session_id, dossier_code)` — **kết thúc phiên**, kiểm tra đã có xác nhận của người dân
-- [ ] Kế thừa dữ liệu từ phiên cha (UC3) — chỉ các trường trong danh sách trắng
+- [x] `create_session(staff_name, parent_session_id, mode)` — **tạo phiên mới**, ghi audit
+- [x] `get_session_state(session_id)` — trả trạng thái đầy đủ gồm mọi trường và cảnh báo
+- [x] `record_consent(session_id, consented)` — ghi nhận đồng ý của người dân
+- [x] `select_procedure(session_id, code)` — kiểm tra catalog, khởi tạo `field_states` rỗng cho mọi trường
+- [x] `cancel_session(session_id, reason)`
+- [x] `complete_session(session_id, dossier_code)` — **kết thúc phiên**, kiểm tra đã có xác nhận của người dân
+- [x] Kế thừa dữ liệu từ phiên cha (UC3) — chỉ các trường trong danh sách trắng
+
+> **Hiện thực (30/8/2026):** `app/services/session_service.py` — `SessionService`
+> + `SessionStateSnapshot` (gồm cảnh báo tính lại từ `FieldState` mỗi lần gọi,
+> không lưu DB) + `SessionNotFound`. Chuyển trạng thái đi qua
+> `transition()` (C1) thay vì tự kiểm tra điều kiện — "đã có xác nhận của
+> người dân" trước `complete_session` được biểu diễn tự nhiên bằng việc chỉ
+> `CITIZEN_CONFIRMED` mới có cạnh `COMPLETE` hợp lệ. Whitelist kế thừa
+> (`INHERITABLE_FIELDS`) theo đúng Mục UC3 của Plan, kế thừa vào
+> `suggested_value`/`suggested_by="parent_session"`, không tự `is_confirmed`.
+> Test: `tests/services/test_session_service.py` (14 test).
 
 ### I2. ExtractionService
 
