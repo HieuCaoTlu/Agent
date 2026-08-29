@@ -204,49 +204,51 @@
 
 ### F1. Trừu tượng hóa
 
-- [ ] Định nghĩa `LLMProvider` (abstract base class) với hàm `extract()` và `health_check()`
-- [ ] Định nghĩa dataclass `LLMResponse` (raw_text, parsed, input_tokens, output_tokens, latency_ms, model)
-- [ ] Viết `MockLLMProvider` trả kết quả cố định theo transcript đầu vào — dùng để phát triển khi chưa có key thật
-- [ ] Viết factory chọn provider theo `settings.llm_provider`
+- [x] Định nghĩa `LLMProvider` (abstract base class) với hàm `extract()` và `health_check()` (`app/llm/base.py`)
+- [x] Định nghĩa dataclass `LLMResponse` (raw_text, input_tokens, output_tokens, latency_ms, model) — không có field `parsed` riêng: parse là việc của `parse_extraction_result` (C5), gọi ngay sau khi có `raw_text`
+- [x] Viết `MockLLMProvider` trả kết quả cố định theo transcript đầu vào — dùng để phát triển khi chưa có key thật (`app/llm/mock_provider.py`)
+- [x] Viết factory chọn provider theo `settings.llm_provider` (`app/llm/factory.py`)
 
 ### F2. Claude provider
 
-- [ ] Viết `ClaudeLLMProvider` dùng SDK `anthropic` bản async
-- [ ] Cấu hình `temperature=0`, `max_tokens=2000`, timeout 30 giây
-- [ ] Dùng tính năng structured output / tool-use để ép định dạng JSON thay vì chỉ dựa vào prompt
-- [ ] Bắt và phân loại lỗi: timeout, rate limit, lỗi mạng, lỗi API
-- [ ] Retry 2 lần với backoff 1s và 3s, chỉ retry lỗi tạm thời
-- [ ] Kiểm tra hostname thuộc `approved_ai_hosts` trước khi gọi, ném exception nếu không
+- [x] Viết `ClaudeLLMProvider` dùng SDK `anthropic` bản async (`app/llm/claude_provider.py`)
+- [x] Cấu hình `max_tokens=2000`, timeout 30 giây — **`temperature=0` bỏ qua** (đã trao đổi với người dùng): SDK `anthropic` 1.2.0 (bản đang cài) không còn tham số `temperature` trong `messages.create()`, dòng model Claude 5 không expose sampling temperature theo cách cũ nữa
+- [x] Dùng tính năng structured output / tool-use để ép định dạng JSON thay vì chỉ dựa vào prompt (tool `submit_extraction_result` với `input_schema` = JSON Schema của `ExtractionResult`, `tool_choice` ép gọi tool này)
+- [x] Bắt và phân loại lỗi: timeout, rate limit, lỗi mạng, lỗi API (`app/llm/exceptions.py`: `LLMTimeoutError`, `LLMRateLimitError`, `LLMConnectionError`, `LLMAPIError`)
+- [x] Retry 2 lần với backoff 1s và 3s, chỉ retry lỗi tạm thời (không retry `LLMAPIError`)
+- [x] Kiểm tra hostname thuộc `approved_ai_hosts` trước khi gọi, ném exception nếu không (`UnapprovedHostError`)
 
 ### F3. Prompt
 
-- [ ] Viết system prompt đầy đủ theo Mục 10.2 của Plan, lưu thành hằng số có version
-- [ ] Viết hàm dựng user message theo cấu trúc Mục 10.3 của Plan
-- [ ] Đưa field schema từ catalog vào message dưới dạng JSON
-- [ ] Đưa danh sách trường đã xác nhận vào message với chỉ dẫn không được thay đổi
-- [ ] Đánh số lượt thoại trong transcript (`[Lượt 1]`, `[Lượt 2]`...)
-- [ ] Hỗ trợ chế độ `only_missing_fields` — chỉ yêu cầu điền trường còn thiếu
-- [ ] Viết hàm sinh prompt cho endpoint sửa một trường (UC4), ngắn gọn hơn prompt đầy đủ
+- [x] Viết system prompt đầy đủ theo Mục 10.2 của Plan, lưu thành hằng số có version (`SYSTEM_PROMPT_V1`, `SYSTEM_PROMPT_VERSION` trong `app/llm/prompt.py`)
+- [x] Viết hàm dựng user message theo cấu trúc Mục 10.3 của Plan (`build_user_message`)
+- [x] Đưa field schema từ catalog vào message dưới dạng JSON
+- [x] Đưa danh sách trường đã xác nhận vào message với chỉ dẫn không được thay đổi
+- [x] Đánh số lượt thoại trong transcript (`[Lượt 1]`, `[Lượt 2]`...)
+- [x] Hỗ trợ chế độ `only_missing_fields` — chỉ yêu cầu điền trường còn thiếu
+- [x] Viết hàm sinh prompt cho endpoint sửa một trường (UC4), ngắn gọn hơn prompt đầy đủ (`build_single_field_correction_message`)
 
 ### F4. Che dữ liệu nhạy cảm
 
-- [ ] Viết class `PIIRedactor`
-- [ ] Nhận diện chuỗi 12 chữ số liên tiếp trong transcript (số CCCD)
-- [ ] Nhận diện số CCCD nói bằng chữ ("không tám một hai...")
-- [ ] Thay bằng placeholder `[CCCD_1]`, `[CCCD_2]`...
-- [ ] Giữ bảng ánh xạ trong bộ nhớ của phiên, tuyệt đối không ghi xuống DB
-- [ ] Viết hàm khôi phục giá trị thật sau khi nhận kết quả từ LLM
-- [ ] Đọc cấu hình `redact_to_llm` từ catalog để quyết định trường nào cần che
+- [x] Viết class `PIIRedactor` (`app/llm/redactor.py`)
+- [x] Nhận diện chuỗi 12 chữ số liên tiếp trong transcript (số CCCD)
+- [x] Nhận diện số CCCD nói bằng chữ ("không một hai...")
+- [x] Thay bằng placeholder `[CCCD_1]`, `[CCCD_2]`...
+- [x] Giữ bảng ánh xạ trong bộ nhớ của phiên, tuyệt đối không ghi xuống DB (không có phương thức nào ghi ra ngoài — verify bằng test)
+- [x] Viết hàm khôi phục giá trị thật sau khi nhận kết quả từ LLM (`restore()`)
+- [ ] Đọc cấu hình `redact_to_llm` từ catalog để quyết định trường nào cần che — **để dành cho tầng service điều phối trích xuất (phần I, chưa tồn tại)**: `PIIRedactor` chỉ cung cấp cơ chế che/khôi phục, quyết định "có che hay không theo field nào" thuộc về nơi gọi nó
 
 ### F5. Kiểm chứng nguồn gốc
 
-- [ ] Viết `verify_grounding(result, transcript, schema)`
-- [ ] Loại bỏ mọi trường không có trong schema của catalog
-- [ ] Với trường `status="extracted"`: kiểm tra `evidence` có rỗng không
-- [ ] So khớp mờ `evidence` với transcript, ngưỡng tương đồng 0.85
-- [ ] Hạ `confidence` xuống `low` và gắn cờ `unverifiable` khi không khớp
-- [ ] Ghi log `schema_violation_detected` khi có trường lạ
-- [ ] Ghi log `unverifiable_value_flagged` khi không truy vết được
+- [x] Viết `verify_grounding(result, transcript, schema)` (`app/llm/grounding.py`)
+- [x] Loại bỏ mọi trường không có trong schema của catalog
+- [x] Với trường `status="extracted"`: kiểm tra `evidence` có rỗng không
+- [x] So khớp mờ `evidence` với transcript, ngưỡng tương đồng 0.85 (`difflib.SequenceMatcher`)
+- [x] Hạ `confidence` xuống `low` và gắn cờ `unverifiable` khi không khớp (ghi vào `reason`, giữ nguyên giá trị để cán bộ tự đối chiếu)
+- [x] Ghi log `schema_violation_detected` khi có trường lạ — trả về dưới dạng `GroundingLogEvent`, tầng gọi (có I/O) ghi thật qua `AuditService` (E)
+- [x] Ghi log `unverifiable_value_flagged` khi không truy vết được
+
+- [x] Bộ test `tests/llm/` (31 test): mock provider, factory, prompt (đầy đủ + only_missing_fields + sửa một trường), redactor (số/chữ, khôi phục, không rò rỉ bảng ánh xạ), grounding (giữ nguyên/loại bỏ/hạ confidence), Claude provider (mock hóa `messages.create`, không gọi mạng thật — hostname chặn, retry thành công/hết lượt, lỗi phân loại đúng, health_check)
 
 ---
 
