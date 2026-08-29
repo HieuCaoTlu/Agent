@@ -13,8 +13,8 @@ với lịch sử...) bổ sung sau khi cần.
 from dataclasses import dataclass
 from typing import Literal
 
+from app.catalog.models import FieldSpec
 from app.domain.extraction_schema import ExtractedField
-from app.domain.field_spec import FieldSpec
 
 Severity = Literal["error", "warning"]
 

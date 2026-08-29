@@ -1,0 +1,64 @@
+{
+  "code": "chung_thuc_dien_tu",
+  "name": "Chứng thực bản sao điện tử từ bản chính",
+  "catalog_version": "2026.08.1",
+  "approved_by": "Phòng Văn hóa - Xã hội phường Yên Sở",
+  "approved_at": "2026-08-15",
+  "legal_basis": "Nghị định 45/2020/NĐ-CP; Nghị định 23/2015/NĐ-CP",
+  "effective_from": "2026-09-01",
+  "effective_to": null,
+  "fields": [
+    {
+      "name": "ho_ten_nguoi_yeu_cau",
+      "label": "Họ và tên người yêu cầu chứng thực",
+      "type": "person_name",
+      "required": true,
+      "sensitive": false,
+      "validators": ["vietnamese_name"]
+    },
+    {
+      "name": "so_cccd_nguoi_yeu_cau",
+      "label": "Số CCCD người yêu cầu",
+      "type": "national_id",
+      "required": true,
+      "sensitive": true,
+      "redact_to_llm": true,
+      "validators": ["cccd_12_digits"]
+    },
+    {
+      "name": "so_dien_thoai",
+      "label": "Số điện thoại liên hệ",
+      "type": "phone",
+      "required": true,
+      "sensitive": true,
+      "redact_to_llm": false,
+      "validators": ["vn_phone_10_digits"]
+    },
+    {
+      "name": "ten_giay_to_can_chung_thuc",
+      "label": "Tên giấy tờ, văn bản cần chứng thực",
+      "type": "text",
+      "required": true,
+      "sensitive": false,
+      "spoken_hint": "Ví dụ: Giấy khai sinh, Bằng tốt nghiệp, Sổ hộ khẩu..."
+    },
+    {
+      "name": "so_luong_ban",
+      "label": "Số lượng bản cần chứng thực",
+      "type": "text",
+      "required": true,
+      "sensitive": false
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Bản chính giấy tờ cần chứng thực",
+      "note": "Còn giá trị sử dụng, không bị tẩy xóa/sửa chữa"
+    },
+    {
+      "name": "Giấy tờ tùy thân của người yêu cầu",
+      "note": "CCCD hoặc hộ chiếu còn hạn"
+    }
+  ],
+  "readback_template": "Tôi xin đọc lại thông tin đã kê khai. Thủ tục: chứng thực bản sao điện tử từ bản chính. Người yêu cầu: {ho_ten_nguoi_yeu_cau}. Giấy tờ cần chứng thực: {ten_giay_to_can_chung_thuc}, số lượng bản: {so_luong_ban}. Số điện thoại: {so_dien_thoai}. Xin ông bà cho biết thông tin trên đã chính xác chưa ạ?"
+}

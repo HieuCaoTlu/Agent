@@ -165,23 +165,24 @@
 
 ### D1. Định nghĩa dữ liệu
 
-- [ ] Định nghĩa Pydantic model `FieldSpec`, `Document`, `Procedure`
-- [ ] Viết file catalog `dang_ky_khai_sinh.json` đầy đủ theo mẫu Mục 6.3 của Plan
-- [ ] Viết file catalog `dang_ky_ket_hon.json`
-- [ ] Viết file catalog `chung_thuc_dien_tu.json`
-- [ ] Mỗi file phải có đủ: `catalog_version`, `approved_by`, `approved_at`, `legal_basis`, `effective_from`
+- [x] Định nghĩa Pydantic model `FieldSpec`, `Document`, `Procedure` (`app/catalog/models.py`)
+- [x] Viết file catalog `dang_ky_khai_sinh.json` đầy đủ theo mẫu Mục 6.3 của Plan
+- [x] Viết file catalog `dang_ky_ket_hon.json`
+- [x] Viết file catalog `chung_thuc_dien_tu.json`
+- [x] Mỗi file phải có đủ: `catalog_version`, `approved_by`, `approved_at`, `legal_basis`, `effective_from`
 
 > Bắt đầu với 2–3 thủ tục ưu tiên cao (Mục 6.4 của Plan) là đủ cho MVP; các thủ tục còn lại thêm sau khi luồng chính chạy ổn.
 
 ### D2. Catalog Service
 
-- [ ] Viết `CatalogService` nạp toàn bộ file JSON khi khởi động ứng dụng
-- [ ] Hàm `list_active(at: date)` — lọc theo `effective_from`/`effective_to`
-- [ ] Hàm `get(code, at)` — ném `ProcedureNotFound` nếu không có
-- [ ] Hàm `get_field_schema(code)`
-- [ ] Hàm `get_required_documents(code)`
-- [ ] Hàm `get_readback_template(code)`
-- [ ] Cache trong bộ nhớ, không đọc file mỗi request
+- [x] Viết `CatalogService` nạp toàn bộ file JSON khi khởi động ứng dụng
+- [x] Hàm `list_active(at: date)` — lọc theo `effective_from`/`effective_to`
+- [x] Hàm `get(code, at)` — ném `ProcedureNotFound` nếu không có
+- [x] Hàm `get_field_schema(code)`
+- [x] Hàm `get_required_documents(code)`
+- [x] Hàm `get_readback_template(code)`
+- [x] Cache trong bộ nhớ, không đọc file mỗi request
+- [x] Bộ test `tests/catalog/` (6 test) + `tests/services/test_catalog_service.py` (7 test): validate model, `is_active` theo mốc thời gian, `list_active`/`get`/`ProcedureNotFound`, và nạp thật 3 file catalog trong `app/static_data/procedures/`
 
 ---
 

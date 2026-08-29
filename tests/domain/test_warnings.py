@@ -1,5 +1,5 @@
+from app.catalog.models import FieldSpec
 from app.domain.extraction_schema import ExtractedField
-from app.domain.field_spec import FieldSpec
 from app.domain.warnings import generate_warnings
 
 _HO_TEN = FieldSpec(name="ho_ten", label="Họ và tên", type="person_name", required=True)
