@@ -394,12 +394,22 @@
 
 ### I3. FieldService
 
-- [ ] `confirm_field(session_id, field_name, value, staff_name)` — lưu giá trị chốt
-- [ ] Đánh dấu `was_edited=true` khi giá trị khác gợi ý AI
-- [ ] Ghi `field_history` với `change_source` phù hợp
-- [ ] Kiểm tra và tự động chuyển trạng thái sang `FIELDS_CONFIRMED` khi đủ trường bắt buộc
-- [ ] `unconfirm_field(session_id, field_name)` — bỏ xác nhận, dùng khi người dân yêu cầu sửa
-- [ ] `get_fields(session_id)` — trả trạng thái mọi trường kèm kết quả validate
+- [x] `confirm_field(session_id, field_name, value, staff_name)` — lưu giá trị chốt
+- [x] Đánh dấu `was_edited=true` khi giá trị khác gợi ý AI
+- [x] Ghi `field_history` với `change_source` phù hợp
+- [x] Kiểm tra và tự động chuyển trạng thái sang `FIELDS_CONFIRMED` khi đủ trường bắt buộc
+- [x] `unconfirm_field(session_id, field_name)` — bỏ xác nhận, dùng khi người dân yêu cầu sửa
+- [x] `get_fields(session_id)` — trả trạng thái mọi trường kèm kết quả validate
+
+> **Hiện thực (30/8/2026):** `app/services/field_service.py` — `FieldService`
+> + `FieldWithValidation` + `SessionNotFoundForField` + `FieldNotFound`.
+> `was_edited` so với `suggested_value` (gợi ý AI), không so với lần xác nhận
+> trước — đúng ý nghĩa "cán bộ có tin gợi ý AI không". Tự động chuyển
+> `FIELDS_CONFIRMED` chỉ áp dụng khi phiên đang ở `REVIEWING` (tránh nhảy
+> trạng thái ngoài ý muốn nếu gọi `confirm_field` ở trạng thái khác).
+> `unconfirm_field` giữ nguyên `confirmed_value`, chỉ tắt `is_confirmed`
+> (không xóa dữ liệu, cùng tinh thần quy tắc merge Mục 7.1/I2).
+> Test: `tests/services/test_field_service.py` (11 test).
 
 ### I4. VoiceService
 
