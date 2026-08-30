@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/* O5: cỡ chữ tối thiểu 16px trên toàn ứng dụng — đặt ở gốc thay vì mặc định
+   trình duyệt (thường 16px nhưng không đảm bảo trên mọi thiết lập/hệ điều
+   hành), mọi rem trong Tailwind sẽ theo baseline này. */
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #111827;
+  background-color: #f9fafb;
+}

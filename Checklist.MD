@@ -755,48 +755,120 @@
 
 ### M1. Khởi tạo
 
-- [ ] Khởi tạo Vite + React 18 + TypeScript trong `frontend/`
-- [ ] Cấu hình Tailwind CSS
-- [ ] Cấu hình đường dẫn alias (`@/` → `src/`)
-- [ ] Cấu hình biến môi trường cho URL backend
-- [ ] Cấu hình proxy dev server trỏ về backend
+- [x] Khởi tạo Vite + React 18 + TypeScript trong `frontend/` — **Hiện thực (30/8/2026)**:
+      `npm create vite@latest . -- --template react-ts`. React thực tế là 19.x (bản mới nhất
+      của template Vite hiện hành) thay vì 18 — không có yêu cầu ràng buộc phiên bản cụ thể
+      nào khác trong Plan.MD, và 19 tương thích ngược với API đã dùng (hooks, không dùng
+      tính năng 18-only nào).
+- [x] Cấu hình Tailwind CSS — **Hiện thực (30/8/2026)**: dùng `@tailwindcss/vite` (Tailwind
+      v4, plugin Vite chính thức — không cần `tailwind.config.js`/`postcss.config.js` riêng
+      như v3). [vite.config.ts](frontend/vite.config.ts), `@import "tailwindcss"` trong
+      [index.css](frontend/src/index.css).
+- [x] Cấu hình đường dẫn alias (`@/` → `src/`) — **Hiện thực (30/8/2026)**:
+      [vite.config.ts](frontend/vite.config.ts) (`resolve.alias`) +
+      [tsconfig.app.json](frontend/tsconfig.app.json) (`compilerOptions.paths`) — cả hai đều
+      cần khai báo (Vite cho runtime bundling, TS cho type-check/IDE).
+- [x] Cấu hình biến môi trường cho URL backend — **Hiện thực (30/8/2026)**:
+      [.env.example](frontend/.env.example) — `VITE_API_BASE_URL` để trống mặc định (dùng
+      qua proxy dev server), chỉ cần đặt khi frontend/backend khác origin lúc build production.
+- [x] Cấu hình proxy dev server trỏ về backend — **Hiện thực (30/8/2026)**:
+      [vite.config.ts](frontend/vite.config.ts) `server.proxy['/api']` → `http://localhost:8000`
+      (cổng uvicorn mặc định), `ws: true` để WebSocket giọng nói (K) cũng đi qua proxy này.
 
 ### M2. Tầng API client
 
-- [ ] Viết HTTP client bọc `fetch` có xử lý lỗi thống nhất
-- [ ] Tự động sinh `X-Request-ID`
-- [ ] Sinh type TypeScript từ OpenAPI schema của backend
-- [ ] Viết hàm gọi API cho từng nhóm endpoint
+- [x] Viết HTTP client bọc `fetch` có xử lý lỗi thống nhất — **Hiện thực (30/8/2026)**:
+      [client.ts](frontend/src/api/client.ts) — parse `ErrorResponse` của backend
+      (`app/api/schemas.py`) thành `ApiError` (có `code`, `status`, `requestId`,
+      `fallbackAvailable`); `fetchBlob` riêng cho audio đọc lại (không parse JSON).
+- [x] Tự động sinh `X-Request-ID` — **Hiện thực (30/8/2026)**: mỗi request tạo UUID mới
+      (`createRequestId()`, [client.ts](frontend/src/api/client.ts)) — khớp `request_id` mà
+      backend trả trong lỗi để đối chiếu log hai phía.
+- [x] Sinh type TypeScript từ OpenAPI schema của backend — **Hiện thực khác đi (30/8/2026)**:
+      không chạy công cụ codegen runtime (`openapi-typescript` cần backend đang chạy để
+      introspect `/openapi.json`) — thay vào đó viết tay
+      [types/api.ts](frontend/src/types/api.ts) đối chiếu trực tiếp từng field với
+      `app/api/schemas.py`/`app/catalog/models.py`. Ghi chú lệnh codegen thật trong comment
+      đầu file nếu cần tự động hóa sau này khi có backend chạy sẵn ở CI.
+- [x] Viết hàm gọi API cho từng nhóm endpoint — **Hiện thực (30/8/2026)**:
+      [api/procedures.ts](frontend/src/api/procedures.ts),
+      [api/sessions.ts](frontend/src/api/sessions.ts), [api/turns.ts](frontend/src/api/turns.ts)
+      (kèm `flag()` — xem ghi chú backend bên dưới),
+      [api/extraction.ts](frontend/src/api/extraction.ts), [api/fields.ts](frontend/src/api/fields.ts)
+      (cố ý không có hàm "xác nhận tất cả", NT-1/NT-3),
+      [api/readback.ts](frontend/src/api/readback.ts).
+      **Phát hiện khi build frontend**: `VoiceService.flag_transcript()` (I4) đã có từ trước
+      nhưng chưa có router endpoint tương ứng — bổ sung
+      `POST /sessions/{id}/turns/{turn_id}/flag` ở [turns.py](app/api/routers/turns.py) +
+      `FlagTranscriptRequest` ở [schemas.py](app/api/schemas.py) để O2 ("Gắn cờ chưa rõ") có
+      API để gọi. Backend vẫn ruff clean, 256 test cũ pass sau khi thêm.
 
 ### M3. Quản lý trạng thái
 
-- [ ] Cài đặt state management (khuyến nghị TanStack Query cho dữ liệu server)
-- [ ] Viết hook `useSession(id)` — lấy và cache trạng thái phiên
-- [ ] Viết hook `useFields(sessionId)` — trạng thái các trường
-- [ ] Viết hook `useProcedures()` — danh mục thủ tục
-- [ ] Cấu hình tự động làm mới dữ liệu phiên sau mỗi thao tác
+- [x] Cài đặt state management (khuyến nghị TanStack Query cho dữ liệu server) — **Hiện thực
+      (30/8/2026)**: `@tanstack/react-query`, cấu hình dùng chung ở
+      [lib/queryClient.ts](frontend/src/lib/queryClient.ts) (`refetchOnWindowFocus: false` —
+      cán bộ làm việc lâu trên một phiên, không muốn bị ghi đè dữ liệu đang nhập khi chuyển tab).
+- [x] Viết hook `useSession(id)` — **Hiện thực (30/8/2026)**: [useSession.ts](frontend/src/hooks/useSession.ts).
+- [x] Viết hook `useFields(sessionId)` — **Hiện thực (30/8/2026)**: [useFields.ts](frontend/src/hooks/useFields.ts)
+      (kèm mutation `useConfirmField`/`useUnconfirmField`/`useAmendField`/`useExtract`).
+- [x] Viết hook `useProcedures()` — **Hiện thực (30/8/2026)**: [useProcedures.ts](frontend/src/hooks/useProcedures.ts)
+      (kèm `useProcedureDetail(code)`).
+- [x] Cấu hình tự động làm mới dữ liệu phiên sau mỗi thao tác — **Hiện thực (30/8/2026)**: mọi
+      mutation trong `useFields.ts`/`useSessionActions.ts`/`useTurns.ts` gọi
+      `invalidateQueries` cho cả `session` lẫn `fields` khi thành công (`SessionStateSnapshot`
+      chứa cả hai — làm mới một phía mà không làm mới phía kia sẽ hiển thị dữ liệu lệch nhau).
 
 ### M4. WebSocket client
 
-- [ ] Viết hook `useVoiceStream(sessionId)`
-- [ ] Xin quyền truy cập micro của trình duyệt
-- [ ] Ghi âm bằng `AudioWorklet` (không dùng `MediaRecorder` vì nó encode sang WebM/Opus, còn Blaze STT streaming yêu cầu **PCM thô 16kHz, mono, 16-bit**) — cần resample nếu thiết bị mặc định 44.1kHz/48kHz
-- [ ] Gửi audio chunk nhị phân qua WebSocket nội bộ (`/sessions/{id}/voice`) theo lô nhỏ (ví dụ 20–50ms/chunk) để backend chuyển tiếp tới Blaze
-- [ ] Nhận và hiển thị transcript từng phần theo thời gian thực
-- [ ] Xử lý mất kết nối, tự động kết nối lại
-- [ ] Hiển thị mức âm lượng đầu vào để cán bộ biết micro có hoạt động không
-- [ ] Dừng ghi âm tự động khi vượt giới hạn thời lượng
+- [x] Viết hook `useVoiceStream(sessionId)` — **Hiện thực (30/8/2026)**: [useVoiceStream.ts](frontend/src/hooks/useVoiceStream.ts).
+- [x] Xin quyền truy cập micro của trình duyệt — **Hiện thực (30/8/2026)**:
+      `navigator.mediaDevices.getUserMedia` trong [audioCapture.ts](frontend/src/lib/audioCapture.ts).
+- [x] Ghi âm bằng `AudioWorklet` — **Hiện thực (30/8/2026)**:
+      [public/pcm-worklet.js](frontend/public/pcm-worklet.js) (chạy trên audio thread, gửi
+      Float32 block về main thread) + [audioCapture.ts](frontend/src/lib/audioCapture.ts)
+      (resample về 16kHz bằng linear interpolation — đủ tốt cho giọng nói ở MVP, không cần bộ
+      lọc chống alias phức tạp — rồi encode Int16 PCM, base64).
+- [x] Gửi audio chunk nhị phân qua WebSocket — **Hiện thực (30/8/2026)**: mỗi block
+      `AudioWorklet` (128 sample ở sample rate gốc thiết bị, resample xuống ~ tương ứng ở
+      16kHz) gửi ngay dưới dạng `{"type": "audio", "data": "<base64>"}` — không gộp thêm
+      thành lô lớn hơn ở MVP, đơn giản hơn và độ trễ thấp hơn là gộp buffer.
+- [x] Nhận và hiển thị transcript từng phần theo thời gian thực — **Hiện thực (30/8/2026)**:
+      xử lý message `partial`/`final` trong `useVoiceStream`, hiển thị ở
+      [TranscriptList.tsx](frontend/src/components/TranscriptList.tsx).
+- [x] Xử lý mất kết nối, tự động kết nối lại — **Hiện thực (30/8/2026)**: `ws.onclose` tự gọi
+      lại `connect` (qua `connectRef`, tránh vấn đề tự tham chiếu biến đang khởi tạo) tối đa 3
+      lần với backoff tuyến tính (1s, 2s, 3s), báo lỗi rõ ràng nếu vẫn thất bại.
+- [x] Hiển thị mức âm lượng đầu vào — **Hiện thực (30/8/2026)**: RMS tính trong worklet
+      callback, đọc qua `getVolumeLevel()`, hiển thị bằng box-shadow động ở
+      [RecordButton.tsx](frontend/src/components/RecordButton.tsx).
+- [x] Dừng ghi âm tự động khi vượt giới hạn thời lượng — **Hiện thực (30/8/2026)**: backend đã
+      tự chốt lượt và gửi `{"type": "error", "code": "RECORDING_TIMEOUT"}` (K) — frontend nhận
+      message này, dọn audio capture, quay về `idle` (không cần tự đếm giờ phía client để trùng
+      lặp logic).
 
 ---
 
 ## N. Frontend — màn hình
 
-- [ ] **Bảng điều khiển** `/` — danh sách phiên gần đây, **nút tạo phiên mới**
-- [ ] **Tạo phiên** `/sessions/new` — chọn chế độ, ghi nhận đồng ý của người dân
-- [ ] **Màn hình làm việc** `/sessions/:id` — bố cục 2 cột theo Mục 11.1 của Plan, chứa nút ghi âm/hỏi lại và các trường dữ liệu
-- [ ] **Đọc lại** `/sessions/:id/readback` — phát audio, nút xác nhận/từ chối
-- [ ] **Hoàn tất** `/sessions/:id/complete` — nhập mã hồ sơ, **kết thúc phiên**
-- [ ] Màn hình 404 và màn hình lỗi chung
+- [x] **Bảng điều khiển** `/` — **Hiện thực (30/8/2026)**: [DashboardPage.tsx](frontend/src/pages/DashboardPage.tsx).
+- [x] **Tạo phiên** `/sessions/new` — **Hiện thực (30/8/2026)**: [NewSessionPage.tsx](frontend/src/pages/NewSessionPage.tsx)
+      — tạo phiên rồi gọi `POST /consent` ngay trong cùng thao tác gửi form (hai lời gọi API
+      tách biệt ở backend, J2).
+- [x] **Màn hình làm việc** `/sessions/:id` — **Hiện thực (30/8/2026)**: [WorkspacePage.tsx](frontend/src/pages/WorkspacePage.tsx)
+      — bố cục 2 cột đúng Plan.MD Mục 11.1 (trái: transcript + ghi âm + checklist hồ sơ; phải:
+      trường dữ liệu + cảnh báo + tiến độ + nút đọc lại), áp dụng đủ 10 quy tắc GD-1..GD-10
+      (Mục 11.2) bao gồm nút "Chép" mỗi trường (GD-4) và banner cố định chân trang (GD-7, xem
+      [ResponsibilityBanner.tsx](frontend/src/components/ResponsibilityBanner.tsx)). Hiện màn
+      hình chọn thủ tục lồng bên trong khi `session.procedure_code === null` thay vì một route
+      riêng — Checklist N không liệt kê `/sessions/:id/procedure` như một màn hình độc lập.
+- [x] **Đọc lại** `/sessions/:id/readback` — **Hiện thực (30/8/2026)**: [ReadbackPage.tsx](frontend/src/pages/ReadbackPage.tsx)
+      — tự gọi `POST /readback` khi vào trang, phát audio nếu có, hiện text + cảnh báo rõ ràng
+      khi `used_fallback` (TTS lỗi, L1), hai nút xác nhận/từ chối gọi `POST /citizen-confirm`.
+- [x] **Hoàn tất** `/sessions/:id/complete` — **Hiện thực (30/8/2026)**: [CompletePage.tsx](frontend/src/pages/CompletePage.tsx).
+- [x] Màn hình 404 và màn hình lỗi chung — **Hiện thực (30/8/2026)**: [NotFoundPage.tsx](frontend/src/pages/NotFoundPage.tsx),
+      [ErrorPage.tsx](frontend/src/pages/ErrorPage.tsx) + [ErrorBoundary.tsx](frontend/src/components/ErrorBoundary.tsx)
+      bọc toàn bộ `<App>` để bắt lỗi runtime React chưa xử lý thay vì màn hình trắng.
 
 > **Lược bỏ khỏi MVP:** `/login`, `/audit`, `/audit/:sessionId`, `/stats`, `/admin/users` và router bảo vệ theo vai trò — xem [Đã lược bỏ khỏi MVP](#đã-lược-bỏ-khỏi-mvp).
 
@@ -806,46 +878,65 @@
 
 ### O1. Component ghi âm (nút hỏi)
 
-- [ ] Nút ghi âm lớn, trạng thái rõ ràng (sẵn sàng / đang ghi / đang xử lý)
-- [ ] Hiển thị mức âm lượng theo thời gian thực
-- [ ] Hiển thị đồng hồ đếm thời lượng
-- [ ] Thông báo rõ khi trình duyệt từ chối quyền micro
+- [x] Nút ghi âm lớn, trạng thái rõ ràng — **Hiện thực (30/8/2026)**: [RecordButton.tsx](frontend/src/components/RecordButton.tsx)
+      (5 trạng thái: idle/connecting/recording/processing/error, nhãn tiếng Việt cho từng trạng thái).
+- [x] Hiển thị mức âm lượng theo thời gian thực — **Hiện thực (30/8/2026)**: box-shadow động theo `volumeLevel` (M4).
+- [x] Hiển thị đồng hồ đếm thời lượng — **Hiện thực (30/8/2026)**: `mm:ss` tính từ `recordingStartedAt`, cập nhật mỗi 250ms.
+- [x] Thông báo rõ khi trình duyệt từ chối quyền micro — **Hiện thực (30/8/2026)**: `startAudioCapture()`
+      ném lỗi bắt được ở `useVoiceStream`, hiển thị thông báo tiếng Việt cụ thể (không phải lỗi kỹ thuật thô).
 
 ### O2. Component transcript
 
-- [ ] Hiển thị danh sách lượt thoại theo thứ tự
-- [ ] Mỗi lượt đều có sẵn nút "Sửa" và "Hỏi lại" — không có phân biệt tự động "rõ/chưa rõ" vì không dùng ngưỡng confidence
-- [ ] Nút "Sửa" mở ô nhập cho cán bộ chỉnh transcript
-- [ ] Nút "Hỏi lại" quay về trạng thái ghi âm
-- [ ] Nút "Gắn cờ chưa rõ" cho cán bộ chủ động đánh dấu một lượt (xem I4)
-- [ ] Hiển thị transcript từng phần khi đang ghi âm
+- [x] Hiển thị danh sách lượt thoại theo thứ tự — **Hiện thực (30/8/2026)**: [TranscriptList.tsx](frontend/src/components/TranscriptList.tsx).
+- [x] Nút "Sửa" và "Hỏi lại" trên mọi lượt, không phân biệt tự động rõ/chưa rõ — **Hiện thực (30/8/2026)**.
+- [x] Nút "Sửa" mở ô nhập chỉnh transcript — **Hiện thực (30/8/2026)**: `textarea` inline, gọi `PATCH /turns/{id}` (J3).
+- [x] Nút "Hỏi lại" quay về trạng thái ghi âm — **Hiện thực (30/8/2026)**: gọi lại `voice.start()`.
+- [x] Nút "Gắn cờ chưa rõ" — **Hiện thực (30/8/2026)**: gọi endpoint mới `POST .../flag` (xem
+      ghi chú M2 — bổ sung backend còn thiếu khi làm phần này).
+- [x] Hiển thị transcript từng phần khi đang ghi âm — **Hiện thực (30/8/2026)**: `partialText`
+      hiện dưới dạng dòng in nghiêng có viền nét đứt, phân biệt rõ với lượt đã chốt.
 
 ### O3. Component trường dữ liệu
 
-- [ ] Hiển thị nhãn tiếng Việt đầy đủ của trường
-- [ ] Nền màu riêng cho giá trị AI gợi ý, kèm nhãn "Gợi ý AI — chưa xác nhận"
-- [ ] Hiển thị đoạn transcript làm căn cứ ngay dưới giá trị
-- [ ] Ô nhập cho phép cán bộ sửa giá trị
-- [ ] Nút "Đã đối chiếu ✓" xác nhận trường
-- [ ] Viền đỏ và nhãn "BẮT BUỘC" cho trường bắt buộc còn thiếu
-- [ ] Hiển thị thông báo validate khi sai định dạng
-- [ ] Hiển thị câu hỏi gợi ý cho cán bộ khi trường thiếu
+- [x] Toàn bộ mục O3 — **Hiện thực (30/8/2026)**: [FieldCard.tsx](frontend/src/components/FieldCard.tsx)
+      — nhãn tiếng Việt (`spec.label`), nền xanh nhạt + nhãn "Gợi ý AI — chưa xác nhận" khi
+      `is_confirmed === false && suggested_value !== null`, `evidence_span` hiển thị ngay dưới
+      dạng "Căn cứ: ...", input sửa được (khóa khi đã xác nhận, dùng `unconfirm` để mở lại),
+      nút "Đã đối chiếu ✓", viền đỏ + nhãn "BẮT BUỘC" khi `required && !is_confirmed &&
+      !suggested_value`, thông báo `validation_message` khi `validation_status === 'format_error'`,
+      `spoken_hint` hiện khi trường bắt buộc còn thiếu. Nút "Chép" (GD-4, không có trong danh
+      sách O3 gốc nhưng có trong Plan.MD 11.2) cũng thêm vào đây.
 
 ### O4. Component khác
 
-- [ ] Checklist thành phần hồ sơ, có ô tích cho cán bộ đánh dấu
-- [ ] Thanh tiến độ "Đã xác nhận N/M trường bắt buộc"
-- [ ] Danh sách cảnh báo, sắp xếp theo mức độ nghiêm trọng
-- [ ] Banner "Chế độ nhập tay" khi AI không khả dụng
-- [ ] Hộp thoại xác nhận cho thao tác quan trọng (hủy phiên, hoàn tất)
+- [x] Checklist thành phần hồ sơ — **Hiện thực (30/8/2026)**: [DocumentChecklist.tsx](frontend/src/components/DocumentChecklist.tsx)
+      — trạng thái tích chỉ ở client (không đồng bộ server, chỉ hỗ trợ trí nhớ tại quầy, mất khi tải lại trang).
+- [x] Thanh tiến độ — **Hiện thực (30/8/2026)**: [ProgressBar.tsx](frontend/src/components/ProgressBar.tsx).
+- [x] Danh sách cảnh báo theo mức độ nghiêm trọng — **Hiện thực (30/8/2026)**: [WarningList.tsx](frontend/src/components/WarningList.tsx)
+      (thứ tự error > warning > info).
+- [x] Banner "Chế độ nhập tay" — **Hiện thực (30/8/2026)**: [ManualModeBanner.tsx](frontend/src/components/ManualModeBanner.tsx),
+      hiện khi `session.state === 'AI_UNAVAILABLE'` (L1).
+- [x] Hộp thoại xác nhận — **Hiện thực (30/8/2026)**: [ConfirmDialog.tsx](frontend/src/components/ConfirmDialog.tsx),
+      dùng cho hủy phiên ở `WorkspacePage`.
 
 ### O5. Yêu cầu giao diện chung
 
-- [ ] Cỡ chữ tối thiểu 16px toàn ứng dụng
-- [ ] Mọi nhãn và thông báo bằng tiếng Việt có dấu, không viết tắt kỹ thuật
-- [ ] Khóa nút "Đọc lại cho người dân" cho tới khi đủ trường bắt buộc
-- [ ] **Không tạo** nút "Xác nhận tất cả" ở bất kỳ đâu
-- [ ] Hiển thị trạng thái đang tải cho mọi thao tác bất đồng bộ
+- [x] Cỡ chữ tối thiểu 16px toàn ứng dụng — **Hiện thực (30/8/2026)**: `html { font-size: 16px }`
+      ở gốc ([index.css](frontend/src/index.css)) + mọi text dùng `text-base` (16px) trở lên,
+      không dùng `text-sm`/`text-xs` cho nội dung chính (chỉ nhãn phụ như timestamp).
+- [x] Nhãn/thông báo tiếng Việt có dấu — **Hiện thực (30/8/2026)**: toàn bộ UI text.
+- [x] Khóa nút "Đọc lại cho người dân" tới khi đủ trường bắt buộc — **Hiện thực (30/8/2026)**:
+      `disabled={!allRequiredConfirmed}` ở `WorkspacePage`.
+- [x] Không có nút "Xác nhận tất cả" — **Hiện thực (30/8/2026)**: xác nhận bằng kiểm tra thủ
+      công toàn bộ component/API — không tồn tại hàm/nút nào lặp `confirm()` cho nhiều trường.
+- [x] Hiển thị trạng thái đang tải — **Hiện thực (30/8/2026)**: [LoadingIndicator.tsx](frontend/src/components/LoadingIndicator.tsx)
+      dùng ở Dashboard/Workspace/Readback; nút submit disable + đổi nhãn khi `isPending`.
+
+> **Kiểm tra đã chạy cho M/N/O**: `npx tsc --noEmit` (0 lỗi), `npm run build` (thành công),
+> `npm run lint` (oxlint, 0 cảnh báo sau khi sửa 2 vấn đề react-hooks phát hiện — xem commit).
+> **Chưa làm ở phần này**: test tự động cho frontend (unit/component/E2E) — nằm ở phạm vi mục
+> P (kiểm thử tối thiểu), vốn đã giới hạn chỉ giữ test cho nguyên tắc lõi backend + test thủ
+> công cho luồng frontend, không có bộ test tự động frontend trong MVP này.
 
 ---
 

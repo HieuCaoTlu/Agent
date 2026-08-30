@@ -191,6 +191,10 @@ class EditTranscriptRequest(BaseModel):
     staff_name: str
 
 
+class FlagTranscriptRequest(BaseModel):
+    staff_name: str
+
+
 class ExtractionResponse(BaseModel):
     id: uuid.UUID
     attempt_number: int

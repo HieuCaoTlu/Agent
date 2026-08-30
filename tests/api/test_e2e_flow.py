@@ -21,8 +21,10 @@ import uuid
 
 from httpx import AsyncClient
 
+from app.models.voice import VoiceTurn
 from app.repositories.field_state_repository import FieldStateRepository
 from app.repositories.session_repository import SessionRepository
+from app.repositories.voice_turn_repository import VoiceTurnRepository
 
 
 async def test_full_session_flow_from_creation_to_completion(
@@ -133,6 +135,24 @@ async def test_full_session_flow_from_creation_to_completion(
     )
     assert repeat_resp.status_code == 409
     assert repeat_resp.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+async def test_flag_turn_marks_flagged_by_staff(client: AsyncClient, db_session) -> None:
+    """Smoke test cho `POST /turns/{id}/flag` (O2 — bổ sung khi build frontend,
+    `VoiceService.flag_transcript()` đã có từ I4 nhưng thiếu router endpoint)."""
+    create_resp = await client.post("/api/v1/sessions", json={"staff_name": "Cán bộ A"})
+    session_id = create_resp.json()["id"]
+
+    turn = VoiceTurn(session_id=uuid.UUID(session_id), turn_number=1, raw_transcript="abc")
+    await VoiceTurnRepository(db_session).add(turn)
+    await db_session.commit()
+
+    flag_resp = await client.post(
+        f"/api/v1/sessions/{session_id}/turns/{turn.id}/flag",
+        json={"staff_name": "Cán bộ A"},
+    )
+    assert flag_resp.status_code == 200
+    assert flag_resp.json()["flagged_by_staff"] is True
 
 
 async def test_get_fields_reflects_confirmed_values(client: AsyncClient, db_session) -> None:

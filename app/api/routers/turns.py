@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_voice_service, get_voice_turn_repository
-from app.api.schemas import EditTranscriptRequest, VoiceTurnResponse
+from app.api.schemas import EditTranscriptRequest, FlagTranscriptRequest, VoiceTurnResponse
 from app.db.database import get_db
 from app.repositories.voice_turn_repository import VoiceTurnRepository
 from app.services.voice_service import VoiceService
@@ -38,5 +38,20 @@ async def edit_turn_transcript(
     của Checklist; `VoiceTurnNotFound` được xử lý bởi handler chung (J7).
     """
     voice_turn = await service.edit_transcript(turn_id, body.new_text, body.staff_name)
+    await db.commit()
+    return VoiceTurnResponse.from_model(voice_turn)
+
+
+@router.post("/{turn_id}/flag", response_model=VoiceTurnResponse)
+async def flag_turn(
+    session_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    body: FlagTranscriptRequest,
+    db: AsyncSession = Depends(get_db),
+    service: VoiceService = Depends(get_voice_service),
+) -> VoiceTurnResponse:
+    """Cán bộ chủ động đánh dấu một lượt là "chưa rõ" (I4, O2) — không có
+    ngưỡng confidence tự động, đánh dấu luôn là hành động thủ công."""
+    voice_turn = await service.flag_transcript(turn_id, body.staff_name)
     await db.commit()
     return VoiceTurnResponse.from_model(voice_turn)
