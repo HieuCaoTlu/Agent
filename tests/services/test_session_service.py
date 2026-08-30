@@ -124,6 +124,10 @@ async def test_select_procedure_success_after_listening(db_session) -> None:
     expected_fields = {f.name for f in schema}
     assert {fs.field_name for fs in field_states} == expected_fields
 
+    # E (hoàn thiện 30/8/2026): mọi lần chuyển trạng thái phiên phải có audit log.
+    logs = await AuditRepository(db_session).list_by_session(session.id)
+    assert any(log.action == "procedure_selected" for log in logs)
+
 
 async def test_select_procedure_unknown_code_raises(db_session) -> None:
     from app.domain.session_state import SessionEvent, transition

@@ -22,3 +22,8 @@ class AuditAction(StrEnum):
     # Thêm ở I4 (VoiceService) — Checklist yêu cầu tường minh ghi audit khi cán
     # bộ chủ động gắn cờ transcript "chưa rõ" (UC5).
     TRANSCRIPT_FLAGGED_BY_STAFF = "transcript_flagged_by_staff"
+    # Thêm ở phần E hoàn thiện (30/8/2026) — hai điểm chuyển trạng thái phiên
+    # còn thiếu audit log tự động (Checklist E: "ghi log tự động mọi lần
+    # chuyển trạng thái phiên"), phát hiện khi rà lại sau khi phần I hoàn tất.
+    PROCEDURE_SELECTED = "procedure_selected"
+    FIELDS_CONFIRMED = "fields_confirmed"

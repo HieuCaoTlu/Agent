@@ -199,7 +199,19 @@
 
 - [x] Định nghĩa enum `AuditAction` — **rút gọn: chỉ các action của luồng chính** (`session_created`, `extraction_requested`, `extraction_succeeded`, `extraction_failed`, `field_confirmed`, `session_completed`, `session_cancelled`), không cần đủ danh mục Mục 8.3 của Plan (`app/domain/audit_action.py`)
 - [x] Viết `AuditService.log(session_id, actor_type, actor_id, action, detail)` (`app/services/audit_service.py`, bọc `AuditRepository`, validate `ip_address`)
-- [ ] Ghi log tự động mọi lần chuyển trạng thái phiên — **để dành cho tầng service điều phối phiên (chưa tồn tại, thuộc phạm vi phần I)**, không thuộc phạm vi E (E chỉ cung cấp cơ chế ghi log, chưa có nơi gọi tự động)
+- [x] Ghi log tự động mọi lần chuyển trạng thái phiên — **Hiện thực (30/8/2026)**: rà lại sau
+      khi phần I hoàn thành — `SessionService` đã ghi audit ở `create_session`
+      (`session_created`), `cancel_session` (`session_cancelled`), `complete_session`
+      (`session_completed`) từ trước, nhưng **thiếu** ở `select_procedure()` (chuyển
+      `PROCEDURE_SELECTED`) và `FieldService._maybe_advance_to_fields_confirmed()` (chuyển
+      `FIELDS_CONFIRMED`) — bổ sung 2 action mới (`PROCEDURE_SELECTED`, `FIELDS_CONFIRMED`)
+      trong [audit_action.py](app/domain/audit_action.py) và gọi `self._audit.append(...)`
+      ngay sau mỗi `transition()` còn thiếu ở
+      [session_service.py](app/services/session_service.py) và
+      [field_service.py](app/services/field_service.py). `EXTRACTING`/`SUGGESTED`/
+      `AI_UNAVAILABLE`/`REVIEWING`/`READBACK`/`CITIZEN_CONFIRMED` đã có audit riêng từ logic
+      nghiệp vụ của chính chúng (extraction_requested/succeeded/failed ở I2, citizen-confirm
+      ở I5) — không cần thêm log trùng lặp.
 
 > **Lược bỏ khỏi bản rút gọn:** đảm bảo cùng transaction chặt với thao tác nghiệp vụ (chấp nhận ghi log ngay sau, không cần atomic), loại bỏ giá trị nhạy cảm khỏi `detail` trước khi ghi (tạm không truyền CCCD vào `detail` thay vì xây cơ chế redact riêng) — cứng hóa lại khi chuẩn bị lên môi trường thật.
 
@@ -243,7 +255,17 @@
 - [x] Thay bằng placeholder `[CCCD_1]`, `[CCCD_2]`...
 - [x] Giữ bảng ánh xạ trong bộ nhớ của phiên, tuyệt đối không ghi xuống DB (không có phương thức nào ghi ra ngoài — verify bằng test)
 - [x] Viết hàm khôi phục giá trị thật sau khi nhận kết quả từ LLM (`restore()`)
-- [ ] Đọc cấu hình `redact_to_llm` từ catalog để quyết định trường nào cần che — **để dành cho tầng service điều phối trích xuất (phần I, chưa tồn tại)**: `PIIRedactor` chỉ cung cấp cơ chế che/khôi phục, quyết định "có che hay không theo field nào" thuộc về nơi gọi nó
+- [x] Đọc cấu hình `redact_to_llm` từ catalog để quyết định trường nào cần che — **Quyết định
+      giữ nguyên khác đi (30/8/2026)**: rà lại sau khi phần I hoàn thành — `ExtractionService`
+      (I2) gọi `redactor.redact(user_message)` (che theo pattern cố định: mọi số CCCD 12 chữ
+      số dạng số/dạng chữ, bất kể field nào) mà không đọc `FieldSpec.redact_to_llm`. Đây là
+      thiết kế có chủ đích, không phải khoảng trống bỏ sót: `PIIRedactor` (F4, xem docstring
+      [redactor.py](app/llm/redactor.py)) giới hạn phạm vi ở "che số CCCD" theo đúng Mục 10.7
+      của Plan.MD đã xác nhận rõ; việc có che thêm họ tên/địa chỉ theo `redact_to_llm` hay
+      không "còn cần quyết định" (Plan.MD Mục 20) — làm theo field cụ thể đòi hỏi thiết kế
+      redact theo loại dữ liệu (tên người, địa chỉ...) phức tạp hơn nhiều so với pattern CCCD
+      cố định, không phù hợp thêm ngoài kế hoạch ở giai đoạn hoàn thiện Q. Giữ nguyên cơ chế
+      hiện tại cho MVP; mở khóa lại khi có quyết định rõ về phạm vi che dữ liệu nhạy cảm.
 
 ### F5. Kiểm chứng nguồn gốc
 
@@ -296,8 +318,13 @@
 ### G4. Kiểm soát chất lượng (thay cho ngưỡng confidence)
 
 - [x] Không retry khi STT lỗi hẳn (audio đã trôi qua theo thời gian thực), báo lỗi ngay cho frontend — `transcribe_stream`/`transcribe_file` ném exception thẳng, không có logic retry-vô-hạn nào ở tầng provider
-- [ ] Hiển thị mọi transcript cho cán bộ xem trước khi trích xuất — không tự động lọc đoạn nào — **thuộc tầng frontend (M, chưa tồn tại)**, không phải việc của tầng STT
-- [ ] Cung cấp nút "Sửa transcript" và "Hỏi lại" cho **mọi** lượt thoại — **thuộc tầng frontend (M, chưa tồn tại)**
+- [x] Hiển thị mọi transcript cho cán bộ xem trước khi trích xuất — không tự động lọc đoạn nào —
+      **Hiện thực (30/8/2026)**: [TranscriptList.tsx](frontend/src/components/TranscriptList.tsx)
+      (O2, phần M/N/O đã hoàn thành) — render toàn bộ `turns` không lọc theo bất kỳ tiêu chí nào.
+- [x] Cung cấp nút "Sửa transcript" và "Hỏi lại" cho **mọi** lượt thoại — **Hiện thực
+      (30/8/2026)**: [TranscriptList.tsx](frontend/src/components/TranscriptList.tsx) — mỗi
+      `TurnRow` luôn có cả hai nút, không phân biệt theo bất kỳ ngưỡng nào (đúng nguyên tắc
+      "không dùng ngưỡng confidence" của C2/O2).
 
 - [x] Bộ test `tests/stt/` (15 test): mock provider (kịch bản, TranscriptChunk không có field confidence), factory (mock/blaze/chặn host), Blaze provider (mock hóa `websockets.connect`/`httpx.AsyncClient` — auth message đúng định dạng, phân biệt partial/final, lỗi kết nối không nuốt transcript đã nhận, retry file thành công/hết lượt/không retry lỗi API)
 

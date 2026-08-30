@@ -130,6 +130,10 @@ async def test_confirm_all_required_fields_advances_session_to_fields_confirmed(
     updated_session = await SessionRepository(db_session).get(session.id)
     assert updated_session.state == "FIELDS_CONFIRMED"
 
+    # E (hoàn thiện 30/8/2026): mọi lần chuyển trạng thái phiên phải có audit log.
+    logs = await AuditRepository(db_session).list_by_session(session.id)
+    assert any(log.action == "fields_confirmed" for log in logs)
+
 
 async def test_confirm_partial_required_fields_keeps_reviewing(db_session) -> None:
     session = await _make_session_with_all_fields(db_session, state="REVIEWING")

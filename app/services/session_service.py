@@ -151,6 +151,13 @@ class SessionService:
         for field in procedure.fields:
             await self._field_states.upsert(session_id, field.name)
 
+        await self._audit.append(
+            actor_type="staff",
+            action=AuditAction.PROCEDURE_SELECTED.value,
+            session_id=session_id,
+            detail={"procedure_code": procedure.code},
+        )
+
         return session
 
     async def inherit_from_parent(self, session_id: uuid.UUID) -> list[str]:

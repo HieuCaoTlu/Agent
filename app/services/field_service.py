@@ -170,6 +170,12 @@ class FieldService:
                 SessionState.REVIEWING, SessionEvent.ALL_REQUIRED_CONFIRMED
             ).value
             await self._sessions.update(session)
+            await self._audit.append(
+                actor_type="system",
+                action=AuditAction.FIELDS_CONFIRMED.value,
+                session_id=session.id,
+                detail={"required_field_count": len(required_names)},
+            )
 
     async def _get_session_or_raise(self, session_id: uuid.UUID) -> Session:
         session = await self._sessions.get(session_id)
