@@ -460,11 +460,43 @@
 
 ### I5. ReadbackService
 
-- [ ] `generate_readback(session_id)` — dựng nội dung từ template và giá trị đã xác nhận
-- [ ] Gọi TTS sinh audio, xử lý fallback sang văn bản khi lỗi
-- [ ] Tăng `readback_round` mỗi lần đọc lại
-- [ ] `record_citizen_confirmation(session_id, confirmed, note)` — lưu xác nhận hoặc từ chối
-- [ ] Khi người dân từ chối: chuyển phiên về `REVIEWING`, ghi audit
+- [x] `generate_readback(session_id)` — dựng nội dung từ template và giá trị đã xác nhận
+- [x] Gọi TTS sinh audio, xử lý fallback sang văn bản khi lỗi
+- [x] Tăng `readback_round` mỗi lần đọc lại
+- [x] `record_citizen_confirmation(session_id, confirmed, note)` — lưu xác nhận hoặc từ chối
+- [x] Khi người dân từ chối: chuyển phiên về `REVIEWING`, ghi audit
+
+> **Hiện thực (30/8/2026):** `app/services/readback_service.py` —
+> `ReadbackService` + `ReadbackOutcome` + `SessionNotFoundForReadback` +
+> `NoProcedureSelected`. Tái dùng `build_readback_text()`/`build_fallback_text()`
+> (H3, đã có sẵn — định dạng ngày/điện thoại tự nhiên, che CCCD) và
+> `TTSProvider.synthesize()` (H1); không viết lại logic định dạng/che dữ liệu.
+> `generate_readback()` chuyển `FIELDS_CONFIRMED` → `READBACK` qua
+> `transition()` (C1), tính `readback_round` kế tiếp qua
+> `CitizenConfirmationRepository.next_readback_round()`, gọi TTS — bắt
+> `TTSError` để suy giảm mềm sang trả về văn bản fallback (NT-2, không ném
+> lỗi ra ngoài). Cố ý **không** tạo bản ghi `CitizenConfirmation` ở bước này:
+> cột `confirmed` của bảng là `BOOLEAN NOT NULL`, không có trạng thái "đang
+> chờ", nên bản ghi chỉ được tạo tại `record_citizen_confirmation()` khi đã
+> biết kết quả thật.
+> `record_citizen_confirmation()` lưu `CitizenConfirmation` mới, chuyển
+> `READBACK` → `CITIZEN_CONFIRMED` (xác nhận) hoặc → `REVIEWING` (từ chối,
+> UC4) qua `transition()`, ghi audit `citizen_confirmed`/`citizen_rejected`
+> tương ứng.
+> Thêm mới `app/repositories/citizen_confirmation_repository.py` —
+> `CitizenConfirmationRepository` (`next_readback_round`, `add`,
+> `list_by_session`, `get_latest`) — chưa tồn tại trước I5.
+> Các audit action (`readback_played`, `citizen_confirmed`,
+> `citizen_rejected`) dùng chuỗi trực tiếp theo đúng tên liệt kê ở Mục 8.3
+> của Plan.MD (dòng 816), cùng cách xử lý như các action ngoài luồng chính
+> đã làm ở I4 — không đưa vào `AuditAction` enum rút gọn.
+> Test: `tests/services/test_readback_service.py` (12 test) — dùng
+> `_StubTTSProvider` (thành công/lỗi có kiểm soát) và catalog thật
+> `dang_ky_khai_sinh` với kỹ thuật `_FixedDate` (đã dùng nhất quán từ I1).
+> Bao gồm: sinh audio + chuyển trạng thái, định dạng ngày sinh đọc tự nhiên,
+> fallback văn bản khi TTS lỗi, phiên/thủ tục không tồn tại, chuyển trạng
+> thái sai gọi từ trạng thái không hợp lệ ném `InvalidTransitionError`, xác
+> nhận/từ chối của người dân, và tăng `readback_round` qua nhiều vòng.
 
 ---
 
