@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+.env
+.uv
+node_modules
+extension
+scripts
+data/logs
+data/pdfs
+.git
+.github
+*.md
+Checklist.MD
