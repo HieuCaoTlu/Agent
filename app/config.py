@@ -40,13 +40,17 @@ class Settings(BaseSettings):
     # ---------- Nhà cung cấp AI (chọn provider) ----------
     stt_provider: Literal["mock", "blaze"] = "mock"
     tts_provider: Literal["mock", "blaze"] = "mock"
-    llm_provider: Literal["mock", "claude"] = "claude"
+    llm_provider: Literal["mock", "claude", "gemini"] = "claude"
 
     # ---------- Claude API (Anthropic) ----------
     anthropic_api_key: str | None = None
     llm_model: str = "claude-sonnet-5"
     llm_timeout_seconds: int = 30
     llm_max_retries: int = 2
+
+    # ---------- Gemini API (Google) ----------
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
 
     # ---------- Blaze API ----------
     blaze_api_token: str | None = None
@@ -74,7 +78,11 @@ class Settings(BaseSettings):
 
     # ---------- Danh sách nhà cung cấp AI được duyệt (NT-10) ----------
     approved_ai_hosts: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["api.anthropic.com", "api.blaze.vn"]
+        default_factory=lambda: [
+            "api.anthropic.com",
+            "api.blaze.vn",
+            "generativelanguage.googleapis.com",
+        ]
     )
 
     # ---------- Ngưỡng nghiệp vụ ----------
@@ -101,6 +109,15 @@ class Settings(BaseSettings):
         if self.llm_provider == "claude" and not self.anthropic_api_key:
             raise ValueError(
                 "ANTHROPIC_API_KEY là bắt buộc khi LLM_PROVIDER=claude. "
+                "Điền giá trị trong file .env hoặc đổi LLM_PROVIDER=mock để phát triển."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _require_gemini_key_for_gemini(self) -> "Settings":
+        if self.llm_provider == "gemini" and not self.gemini_api_key:
+            raise ValueError(
+                "GEMINI_API_KEY là bắt buộc khi LLM_PROVIDER=gemini. "
                 "Điền giá trị trong file .env hoặc đổi LLM_PROVIDER=mock để phát triển."
             )
         return self

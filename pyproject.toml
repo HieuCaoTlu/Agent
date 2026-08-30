@@ -19,6 +19,7 @@ dependencies = [
     "anthropic>=0.40",
     "structlog>=24.4",
     "websockets>=13.0",
+    "google-genai>=2.20.0",
 ]
 
 [dependency-groups]

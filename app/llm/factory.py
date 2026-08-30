@@ -8,12 +8,21 @@ from app.config import Settings
 from app.domain.extraction_schema import extraction_result_json_schema
 from app.llm.base import LLMProvider
 from app.llm.claude_provider import ClaudeLLMProvider
+from app.llm.gemini_provider import GeminiLLMProvider
 from app.llm.mock_provider import MockLLMProvider
 
 
 def create_llm_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "mock":
         return MockLLMProvider()
+
+    if settings.llm_provider == "gemini":
+        assert settings.gemini_api_key is not None  # Settings validator đã bắt buộc khi 'gemini'
+        return GeminiLLMProvider(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            approved_hosts=settings.approved_ai_hosts,
+        )
 
     assert settings.anthropic_api_key is not None  # Settings validator đã bắt buộc khi 'claude'
     return ClaudeLLMProvider(
