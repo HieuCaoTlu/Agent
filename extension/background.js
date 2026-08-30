@@ -1,8 +1,12 @@
 const DEFAULT_BACKEND_URL = 'ws://localhost:8000/extension';
-const TARGET_URL_PATTERN = 'https://dichvucong.gov.vn/*';
+const TARGET_URL_PATTERN = 'https://*.gov.vn/*';
+const PING_INTERVAL_MS = 15000;
+const PONG_TIMEOUT_MS = 10000;
 
 let socket = null;
 let reconnectTimer = null;
+let pingTimer = null;
+let pongTimeoutTimer = null;
 let connectionState = 'connecting';
 let lastError = '';
 let currentUrl = '';
@@ -16,6 +20,30 @@ function setConnectionState(state, error) {
   connectionState = state;
   lastError = error || '';
   chrome.runtime.sendMessage({ type: 'connection_state', state: connectionState, error: lastError, url: currentUrl }).catch(() => {});
+}
+
+function stopPing() {
+  if (pingTimer) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+  if (pongTimeoutTimer) {
+    clearTimeout(pongTimeoutTimer);
+    pongTimeoutTimer = null;
+  }
+}
+
+function startPing() {
+  stopPing();
+  pingTimer = setInterval(() => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: 'ping' }));
+    if (pongTimeoutTimer) clearTimeout(pongTimeoutTimer);
+    pongTimeoutTimer = setTimeout(() => {
+      setConnectionState('disconnected', 'Không nhận được phản hồi từ backend (pong timeout).');
+      try { socket.close(); } catch (e) {}
+    }, PONG_TIMEOUT_MS);
+  }, PING_INTERVAL_MS);
 }
 
 async function connect() {
@@ -36,10 +64,18 @@ async function connect() {
   socket.onopen = () => {
     console.log('[extension] Đã kết nối backend:', url);
     setConnectionState('connected');
+    startPing();
   };
 
   socket.onmessage = async (event) => {
     const message = JSON.parse(event.data);
+    if (message.type === 'pong') {
+      if (pongTimeoutTimer) {
+        clearTimeout(pongTimeoutTimer);
+        pongTimeoutTimer = null;
+      }
+      return;
+    }
     try {
       const result = await handleCommand(message);
       sendResponse(message.request_id, result);
@@ -49,6 +85,7 @@ async function connect() {
   };
 
   socket.onclose = (event) => {
+    stopPing();
     setConnectionState('disconnected', event.reason || `Mất kết nối (mã ${event.code}).`);
     scheduleReconnect();
   };
@@ -122,6 +159,60 @@ async function sendToContentScript(action, payload) {
   throw attemptError;
 }
 
+async function getAllFrameIds() {
+  if (controlledTabId === null) {
+    throw new Error('Chưa có tab dichvucong.gov.vn nào đang được điều khiển.');
+  }
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId: controlledTabId });
+    return frames.map((f) => f.frameId);
+  } catch (err) {
+    return [0];
+  }
+}
+
+async function sendToFrame(frameId, action, payload) {
+  let attemptError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await chrome.tabs.sendMessage(controlledTabId, { action, ...payload }, { frameId });
+    } catch (err) {
+      attemptError = err;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  throw attemptError;
+}
+
+async function scanAllFramesWithComboboxes() {
+  const frameIds = await getAllFrameIds();
+  const results = [];
+  for (const frameId of frameIds) {
+    try {
+      const result = await sendToFrame(frameId, 'scan_form_with_comboboxes', {});
+      if (result && !result.error) results.push({ frameId, ...result });
+    } catch (err) {
+      // frame này không có content script hợp lệ hoặc không phản hồi kịp, bỏ qua
+    }
+  }
+  return results;
+}
+
+async function fillFieldAcrossFrames(payload) {
+  const frameIds = await getAllFrameIds();
+  let lastError;
+  for (const frameId of frameIds) {
+    try {
+      const result = await sendToFrame(frameId, 'fill_field', payload);
+      if (result && !result.error) return result;
+      lastError = result && result.error;
+    } catch (err) {
+      lastError = String(err);
+    }
+  }
+  throw new Error(lastError || 'Không tìm thấy trường ở bất kỳ frame nào: ' + payload.selector);
+}
+
 async function handleCommand(message) {
   switch (message.action) {
     case 'open_url_and_scan': {
@@ -130,6 +221,18 @@ async function handleCommand(message) {
     }
     case 'scan_current_page': {
       return await sendToContentScript('scan_page', {});
+    }
+    case 'scan_required_documents': {
+      return await sendToContentScript('scan_required_documents', {});
+    }
+    case 'scan_form_with_comboboxes': {
+      const frameResults = await scanAllFramesWithComboboxes();
+      if (frameResults.length === 0) {
+        throw new Error('Không quét được frame nào trên trang hiện tại.');
+      }
+      const html = frameResults.map((r) => r.html).join('\n<!-- frame -->\n');
+      const combobox_options = frameResults.flatMap((r) => r.combobox_options || []);
+      return { html, url: frameResults[0].url, combobox_options, frame_count: frameResults.length };
     }
     case 'click_selector': {
       const result = await sendToContentScript('click_selector', { selector: message.selector });
@@ -140,6 +243,14 @@ async function handleCommand(message) {
       return await sendToContentScript('run_fixed_submit_flow', {
         province: message.province,
         ward: message.ward,
+      });
+    }
+    case 'fill_field': {
+      return await fillFieldAcrossFrames({
+        selector: message.selector,
+        value: message.value,
+        field_type: message.field_type,
+        is_combobox: message.is_combobox,
       });
     }
     default:
@@ -206,5 +317,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 connect();
-chrome.alarms.create('keepalive', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(() => connect());
+chrome.alarms.create('keepalive', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    connect();
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'ping' }));
+});

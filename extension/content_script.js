@@ -2,7 +2,7 @@ function cleanHtmlForAi(rawHtml) {
   const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
   doc.querySelectorAll('script, style, noscript, svg').forEach((el) => el.remove());
   doc.querySelectorAll('*').forEach((el) => {
-    const keep = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'role', 'href', 'value', 'for'];
+    const keep = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'role', 'href', 'value', 'for', 'data-scan-field-id'];
     [...el.attributes].forEach((attr) => {
       if (!keep.includes(attr.name)) el.removeAttribute(attr.name);
     });
@@ -12,6 +12,67 @@ function cleanHtmlForAi(rawHtml) {
 
 function scanPage() {
   return { html: cleanHtmlForAi(document.documentElement.outerHTML), url: location.href };
+}
+
+function scanRequiredDocuments() {
+  const headings = [...document.querySelectorAll('h4')].filter(
+    (h) => h.textContent.trim() === 'Thành phần hồ sơ'
+  );
+  if (headings.length === 0) return { items: [], url: location.href };
+
+  const container = headings[0].nextElementSibling;
+  if (!container) return { items: [], url: location.href };
+
+  const tables = [...container.querySelectorAll('table')];
+  const items = [];
+  for (const table of tables) {
+    const headerCells = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    const nameIdx = headerCells.findIndex((h) => h.includes('Tên giấy tờ'));
+    const qtyIdx = headerCells.findIndex((h) => h.includes('Số lượng'));
+    if (nameIdx === -1) continue;
+
+    const rows = [...table.querySelectorAll('tbody tr')];
+    for (const row of rows) {
+      const cells = [...row.querySelectorAll('td')];
+      const name = cells[nameIdx] ? cells[nameIdx].textContent.trim() : '';
+      const qty = qtyIdx !== -1 && cells[qtyIdx] ? cells[qtyIdx].textContent.trim() : '';
+      if (name) {
+        items.push({ name, qty });
+      }
+    }
+  }
+  return { items, url: location.href };
+}
+
+const SCAN_FIELD_ATTR = 'data-scan-field-id';
+const SCAN_FRAME_PREFIX = Math.random().toString(36).slice(2, 8);
+
+async function scanFormWithComboboxes() {
+  const comboboxButtons = [...document.querySelectorAll('button.custom-input-typography')];
+  const comboboxOptions = [];
+
+  comboboxButtons.forEach((button, i) => button.setAttribute(SCAN_FIELD_ATTR, `${SCAN_FRAME_PREFIX}-${i}`));
+
+  for (let i = 0; i < comboboxButtons.length; i++) {
+    const button = comboboxButtons[i];
+    const selector = `[${SCAN_FIELD_ATTR}="${SCAN_FRAME_PREFIX}-${i}"]`;
+    try {
+      simulateClick(button);
+      const options = await waitForOptions(2000);
+      const texts = options.map((o) => o.textContent.trim()).filter(Boolean);
+      if (texts.length > 0) {
+        comboboxOptions.push({ selector, options: texts });
+      }
+      simulateClick(button);
+      await waitForNoListbox(1500);
+    } catch (err) {
+      await waitForNoListbox(1000);
+    }
+  }
+
+  const html = cleanHtmlForAi(document.documentElement.outerHTML);
+
+  return { html, url: location.href, combobox_options: comboboxOptions };
 }
 
 function waitForOptions(timeoutMs) {
@@ -101,8 +162,8 @@ function waitForNoListbox(timeoutMs) {
   });
 }
 
-async function chooseComboboxByPlaceholder(placeholderSubstring, text) {
-  await waitForNoListbox(2000);
+async function chooseComboboxByPlaceholder(placeholderSubstring, text, waitForPreviousListboxClose) {
+  if (waitForPreviousListboxClose) await waitForNoListbox(2000);
   let options = [];
   for (let attempt = 0; attempt < 3 && options.length === 0; attempt++) {
     const button = await waitFor(() => findComboboxButtonByPlaceholder(placeholderSubstring), 5000, 200);
@@ -121,13 +182,55 @@ async function chooseComboboxByPlaceholder(placeholderSubstring, text) {
   await waitForNoListbox(2000);
 }
 
+function setNativeValue(el, value) {
+  const proto = Object.getPrototypeOf(el);
+  const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+  if (descriptor && descriptor.set) {
+    descriptor.set.call(el, value);
+  } else {
+    el.value = value;
+  }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+async function fillField({ selector, value, field_type, is_combobox }) {
+  const el = document.querySelector(selector);
+  if (!el) throw new Error('Không tìm thấy trường: ' + selector);
+
+  const resolvedType = field_type || (is_combobox ? 'combobox' : 'text');
+
+  if (resolvedType === 'choice_option') {
+    simulateClick(el);
+    return { ok: true };
+  }
+
+  if (resolvedType === 'combobox') {
+    simulateClick(el);
+    const options = await waitForOptions(2500);
+    if (options.length === 0) throw new Error('Danh sách lựa chọn không xuất hiện: ' + selector);
+    const normalized = value.trim().toLowerCase();
+    let match = options.find((o) => o.textContent.trim().toLowerCase() === normalized);
+    if (!match) match = options.find((o) => o.textContent.trim().toLowerCase().includes(normalized));
+    if (!match) throw new Error('Không tìm thấy lựa chọn khớp: ' + value);
+    simulateClick(match);
+    await waitForNoListbox(2000);
+    return { ok: true };
+  }
+
+  el.focus();
+  setNativeValue(el, value);
+  el.blur();
+  return { ok: true };
+}
+
 async function runFixedSubmitFlow({ province, ward }) {
+  await chooseComboboxByPlaceholder('Chọn Tỉnh', province);
+  await chooseComboboxByPlaceholder('Chọn Phường', ward);
+
   const navBtn = findButtonByText('Nộp hồ sơ');
   if (!navBtn) throw new Error('Không tìm thấy nút "Nộp hồ sơ" trên trang chi tiết thủ tục.');
   simulateClick(navBtn);
-
-  await chooseComboboxByPlaceholder('Chọn Tỉnh', province);
-  await chooseComboboxByPlaceholder('Chọn Phường', ward);
 
   const agreeBtn = await waitFor(() => findButtonByText('Đồng ý'), 3000, 200);
   if (!agreeBtn) throw new Error('Không tìm thấy nút "Đồng ý" sau khi chọn Tỉnh/Phường.');
@@ -158,11 +261,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'scan_page':
           result = scanPage();
           break;
+        case 'scan_required_documents':
+          result = scanRequiredDocuments();
+          break;
+        case 'scan_form_with_comboboxes':
+          result = await scanFormWithComboboxes();
+          break;
         case 'click_selector':
           result = clickSelector(message);
           break;
         case 'run_fixed_submit_flow':
           result = await runFixedSubmitFlow(message);
+          break;
+        case 'fill_field':
+          result = await fillField(message);
           break;
         default:
           throw new Error('Lệnh không xác định: ' + message.action);

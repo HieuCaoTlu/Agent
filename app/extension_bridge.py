@@ -41,7 +41,7 @@ class ExtensionManager:
         if future and not future.done():
             future.set_result(message)
 
-    async def send_command(self, action: str, payload: dict) -> dict:
+    async def send_command(self, action: str, payload: dict, timeout: float = _PENDING_TIMEOUT) -> dict:
         if self._socket is None:
             raise ExtensionNotConnected("Chưa có extension nào kết nối tới backend.")
 
@@ -54,7 +54,7 @@ class ExtensionManager:
         )
 
         try:
-            result = await asyncio.wait_for(future, timeout=_PENDING_TIMEOUT)
+            result = await asyncio.wait_for(future, timeout=timeout)
         finally:
             self._pending.pop(request_id, None)
 

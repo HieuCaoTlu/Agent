@@ -10,9 +10,20 @@ const submitPrompt = document.getElementById('submitPrompt');
 const autoSubmitBtn = document.getElementById('autoSubmitBtn');
 const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
 const retryBtn = document.getElementById('retryBtn');
+const scanChoicePrompt = document.getElementById('scanChoicePrompt');
+const aiFillBtn = document.getElementById('aiFillBtn');
+const manualFillBtn = document.getElementById('manualFillBtn');
+const postSubmitActions = document.getElementById('postSubmitActions');
+const triggerScanBtn = document.getElementById('triggerScanBtn');
+const requiredDocsBtn = document.getElementById('requiredDocsBtn');
 const chatLog = document.getElementById('chatLog');
+const extensionStatusEls = [
+  document.getElementById('extensionStatus'),
+  document.getElementById('extensionStatusChat'),
+];
 
 const AUTO_SUBMIT_COUNTDOWN_SEC = 3;
+const EXTENSION_STATUS_POLL_MS = 5000;
 
 let ws = null;
 let audioContext = null;
@@ -30,6 +41,26 @@ let typingBubble = null;
 function setWaveState(state) {
   wave.className = 'wave ' + state;
 }
+
+function setExtensionStatusUi(connected) {
+  for (const el of extensionStatusEls) {
+    el.className = 'extension-status ' + (connected ? 'connected' : 'disconnected');
+    el.querySelector('.label').textContent = connected ? 'Kết nối: OK' : 'Kết nối: Fail';
+  }
+}
+
+async function checkExtensionStatus() {
+  try {
+    const res = await fetch('/extension/status');
+    const data = await res.json();
+    setExtensionStatusUi(!!data.connected);
+  } catch (err) {
+    setExtensionStatusUi(false);
+  }
+}
+
+checkExtensionStatus();
+setInterval(checkExtensionStatus, EXTENSION_STATUS_POLL_MS);
 
 function showTypingBubble() {
   hideTypingBubble();
@@ -64,6 +95,14 @@ function finalizeTurn() {
   pendingUserBubble = null;
   pendingAiBubble = null;
   hideTypingBubble();
+}
+
+function appendSystemBubble(text) {
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble system';
+  bubble.textContent = text;
+  chatLog.appendChild(bubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function renderProcedureCard(data) {
@@ -108,6 +147,46 @@ function renderProcedureCard(data) {
     link.rel = 'noopener';
     link.textContent = 'Xem chi tiết trên dichvucong.gov.vn';
     card.appendChild(link);
+  }
+
+  chatLog.appendChild(card);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function renderRequiredDocumentsCard(data) {
+  const card = document.createElement('div');
+  card.className = 'procedure-card';
+
+  const title = document.createElement('div');
+  title.className = 'procedure-card-title';
+  title.textContent = 'Thành phần hồ sơ cần chuẩn bị';
+  card.appendChild(title);
+
+  const hasSummary = data.summary && data.summary.length;
+  const source = hasSummary ? data.summary : data.items;
+  if (!source || source.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Không tìm thấy thông tin thành phần hồ sơ trên trang hiện tại.';
+    card.appendChild(empty);
+  } else {
+    const list = document.createElement('ul');
+    for (const item of source) {
+      const li = document.createElement('li');
+      if (typeof item === 'string') {
+        li.textContent = item;
+      } else {
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'item-name';
+        nameSpan.textContent = item.name;
+        const qtySpan = document.createElement('span');
+        qtySpan.className = 'item-qty';
+        qtySpan.textContent = item.qty || '';
+        li.appendChild(nameSpan);
+        li.appendChild(qtySpan);
+      }
+      list.appendChild(li);
+    }
+    card.appendChild(list);
   }
 
   chatLog.appendChild(card);
@@ -209,16 +288,45 @@ function cancelAutoSubmit() {
   }
 }
 
+function chooseScanFill(choice) {
+  scanChoicePrompt.hidden = true;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'scan_fill_choice', choice }));
+  }
+}
+
+function triggerScanForm() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'trigger_scan_form' }));
+  }
+}
+
+function requestRequiredDocuments() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'request_required_documents' }));
+  }
+}
+
 function handleWsMessage(event) {
   const msg = JSON.parse(event.data);
   if (msg.type === 'audio') {
     playPcmChunk(msg.data);
   } else if (msg.type === 'show_submit_button') {
     startAutoSubmitCountdown();
+  } else if (msg.type === 'show_scan_choice_buttons') {
+    scanChoicePrompt.hidden = false;
+  } else if (msg.type === 'show_scan_form_button') {
+    postSubmitActions.hidden = false;
+  } else if (msg.type === 'required_documents') {
+    finalizeTurn();
+    renderRequiredDocumentsCard(msg.data);
   } else if (msg.type === 'submit_procedure_status') {
     statusEl.textContent = msg.message;
+    appendSystemBubble(msg.message);
   } else if (msg.type === 'submit_procedure_done') {
-    statusEl.textContent = msg.message || 'Đã mở thủ tục trên dichvucong.gov.vn — vui lòng kiểm tra và bấm "Nộp trực tuyến" nếu đúng.';
+    const doneMsg = msg.message || 'Đã mở thủ tục trên dichvucong.gov.vn — vui lòng kiểm tra và bấm "Nộp trực tuyến" nếu đúng.';
+    statusEl.textContent = doneMsg;
+    appendSystemBubble(doneMsg);
   } else if (msg.type === 'submit_procedure_error') {
     statusEl.textContent = 'Lỗi: ' + msg.message;
     retryBtn.hidden = false;
@@ -233,11 +341,11 @@ function handleWsMessage(event) {
     appendTranscript(msg.text, 'ai');
   } else if (msg.type === 'turn_complete') {
     finalizeTurn();
-    if (!isTalking) statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
+    if (!isTalking) statusEl.textContent = 'Nhấn nút, Enter hoặc Space để bắt đầu nói';
     setWaveState('idle');
   } else if (msg.type === 'interrupted') {
     finalizeTurn();
-    if (!isTalking) statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
+    if (!isTalking) statusEl.textContent = 'Nhấn nút, Enter hoặc Space để bắt đầu nói';
     setWaveState('idle');
     nextPlayTime = playbackContext ? playbackContext.currentTime : 0;
   }
@@ -272,6 +380,8 @@ async function start() {
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
+  scanChoicePrompt.hidden = true;
+  postSubmitActions.hidden = true;
   retryBtn.hidden = true;
   isTalking = false;
   talkBtn.textContent = 'Nhấn để nói';
@@ -296,7 +406,7 @@ async function start() {
     };
     source.connect(workletNode);
 
-    statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
+    statusEl.textContent = 'Nhấn nút, Enter hoặc Space để bắt đầu nói';
     setWaveState('idle');
   };
 
@@ -310,6 +420,8 @@ function startSubmitTest(procedureName) {
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
+  scanChoicePrompt.hidden = true;
+  postSubmitActions.hidden = true;
   retryBtn.hidden = true;
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
@@ -348,6 +460,8 @@ function resetUi() {
   lastSubmitRequest = null;
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
+  scanChoicePrompt.hidden = true;
+  postSubmitActions.hidden = true;
   finalizeTurn();
   setWaveState('idle');
   chatCard.hidden = true;
@@ -385,12 +499,16 @@ stopBtn.onclick = stop;
 talkBtn.onclick = toggleTalking;
 autoSubmitBtn.onclick = submitProcedure;
 cancelSubmitBtn.onclick = cancelAutoSubmit;
+aiFillBtn.onclick = () => chooseScanFill('ai');
+manualFillBtn.onclick = () => chooseScanFill('manual');
+triggerScanBtn.onclick = triggerScanForm;
+requiredDocsBtn.onclick = requestRequiredDocuments;
 retryBtn.onclick = retry;
 testSubmitBtn.onclick = () => startSubmitTest('Đăng ký khai sinh');
 
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || chatCard.hidden) return;
-  const activeTag = document.activeElement && document.activeElement.tagName;
-  if (activeTag === 'BUTTON') e.preventDefault();
+  if ((e.key !== 'Enter' && e.key !== ' ' && e.code !== 'Space') || chatCard.hidden) return;
+  e.preventDefault();
+  if (e.repeat) return;
   toggleTalking();
 });

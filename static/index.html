@@ -26,6 +26,11 @@
       <button id="testSubmitBtn" class="secondary-btn">Test nộp: Đăng ký khai sinh</button>
 
       <a href="/manage.html" class="link-btn">Quản lý dữ liệu thủ tục</a>
+
+      <div class="extension-status" id="extensionStatus">
+        <span class="dot"></span>
+        <span class="label">Đang kiểm tra...</span>
+      </div>
     </div>
 
     <div class="chat-card" id="chatCard" hidden>
@@ -34,7 +39,11 @@
           <span></span><span></span><span></span><span></span><span></span>
           <span></span><span></span><span></span><span></span>
         </div>
-        <div id="status">Nhấn nút hoặc Enter để bắt đầu nói</div>
+        <div id="status">Nhấn nút, Enter hoặc Space để bắt đầu nói</div>
+        <div class="extension-status" id="extensionStatusChat">
+          <span class="dot"></span>
+          <span class="label">Đang kiểm tra...</span>
+        </div>
       </div>
 
       <div class="chat-log" id="chatLog"></div>
@@ -43,6 +52,14 @@
       <div class="submit-prompt" id="submitPrompt" hidden>
         <button id="autoSubmitBtn">Tự động nộp</button>
         <button id="cancelSubmitBtn">Hủy nộp</button>
+      </div>
+      <div class="submit-prompt" id="scanChoicePrompt" hidden>
+        <button id="aiFillBtn">Nhờ AI nhập</button>
+        <button id="manualFillBtn">Tôi tự điền</button>
+      </div>
+      <div class="submit-prompt" id="postSubmitActions" hidden>
+        <button id="triggerScanBtn" class="secondary-btn">Quét trang</button>
+        <button id="requiredDocsBtn" class="secondary-btn">Thành phần hồ sơ cần chuẩn bị</button>
       </div>
       <button id="retryBtn" hidden>Thử lại</button>
       <button id="stopBtn">Kết thúc hỗ trợ</button>

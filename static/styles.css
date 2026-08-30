@@ -58,6 +58,26 @@ header.gov-header {
 }
 .gov-header .title span { display: block; font-size: 12px; color: #fdece3; }
 
+.extension-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.extension-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.extension-status.connected .dot { background: #3fbf5f; }
+.extension-status.disconnected .dot { background: #e0433d; }
+.extension-status.checking .dot { background: #ffc251; }
+
 main {
   flex: 1;
   display: flex;
@@ -262,6 +282,16 @@ button {
   background: var(--bg-secondary);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
+}
+.bubble.system {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-style: italic;
+  text-align: left;
+  max-width: 90%;
 }
 .bubble.typing {
   display: flex;
