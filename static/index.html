@@ -4,133 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Trợ lý giọng nói AI — Dịch vụ công</title>
-<style>
-  :root {
-    --dvc-blue: #005CA9;      /* xanh dương cổng dịch vụ công */
-    --dvc-blue-dark: #003D75;
-    --dvc-red: #DA251D;       /* đỏ cờ */
-    --dvc-bg: #F2F5F8;
-    --dvc-border: #DCE4EC;
-    --dvc-text: #1B2733;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    font-family: "Segoe UI", "Roboto", Arial, sans-serif;
-    background: var(--dvc-bg);
-    color: var(--dvc-text);
-  }
-
-  header.gov-header {
-    background: var(--dvc-blue);
-    border-bottom: 4px solid var(--dvc-red);
-    color: white;
-    padding: 14px 24px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-  }
-  .emblem {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    color: var(--dvc-blue);
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .gov-header .title { line-height: 1.25; }
-  .gov-header .title strong { display: block; font-size: 16px; }
-  .gov-header .title span { display: block; font-size: 12px; opacity: 0.85; }
-
-  main {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 32px 16px;
-  }
-
-  .card {
-    background: white;
-    border: 1px solid var(--dvc-border);
-    border-radius: 16px;
-    box-shadow: 0 4px 16px rgba(0, 61, 117, 0.08);
-    padding: 40px 48px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 20px;
-    max-width: 420px;
-    width: 100%;
-  }
-  .card h1 {
-    font-size: 18px;
-    margin: 0;
-    text-align: center;
-    color: var(--dvc-blue-dark);
-  }
-
-  .avatar {
-    width: 140px;
-    height: 140px;
-    border-radius: 50%;
-    background: linear-gradient(160deg, var(--dvc-blue) 0%, var(--dvc-blue-dark) 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    transition: box-shadow 0.2s ease;
-    box-shadow: 0 0 0 0 rgba(0, 92, 169, 0.35);
-  }
-  .avatar svg { width: 64px; height: 64px; }
-  .avatar.listening { box-shadow: 0 0 0 14px rgba(0, 92, 169, 0.12); }
-  .avatar.speaking { box-shadow: 0 0 0 14px rgba(218, 37, 29, 0.18); animation: pulse 1s infinite; }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 10px rgba(218, 37, 29, 0.16); }
-    50% { box-shadow: 0 0 0 22px rgba(218, 37, 29, 0.06); }
-  }
-
-  #status {
-    font-size: 15px;
-    color: #55636F;
-    text-align: center;
-    min-height: 20px;
-  }
-
-  button {
-    font-size: 16px;
-    padding: 12px 28px;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    width: 100%;
-  }
-  #startBtn { background: var(--dvc-blue); color: white; }
-  #startBtn:hover { background: var(--dvc-blue-dark); }
-  #stopBtn { background: white; color: var(--dvc-red); border: 1.5px solid var(--dvc-red); }
-  #stopBtn:hover { background: #FDEDEC; }
-
-  footer {
-    text-align: center;
-    font-size: 12px;
-    color: #8393A2;
-    padding: 12px;
-  }
-</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="gov-header">
-    <div class="emblem">DVC</div>
     <div class="title">
       <strong>Trợ lý giọng nói AI</strong>
       <span>Cổng hỗ trợ dịch vụ công trực tuyến</span>
@@ -138,161 +16,36 @@
   </header>
 
   <main>
-    <div class="card">
-      <div class="avatar" id="avatar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/>
-          <path d="M19 11v1a7 7 0 0 1-14 0v-1"/>
-          <path d="M12 19v3M9 22h6"/>
-        </svg>
+    <!-- Màn hình chờ: chỉ có nút bắt đầu hỗ trợ -->
+    <div class="card" id="idleCard">
+      <div class="orb" id="idleOrb">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        <span class="bar"></span><span class="bar"></span>
       </div>
       <h1>Trợ lý sẽ lắng nghe và trả lời trực tiếp bằng giọng nói</h1>
-      <div id="status">Sẵn sàng hỗ trợ</div>
-      <button id="startBtn">🎙 Bắt đầu hỗ trợ</button>
-      <button id="stopBtn" style="display:none">⏹ Kết thúc hỗ trợ</button>
+      <button id="startBtn">Bắt đầu hỗ trợ</button>
+
+      <a href="/manage.html" class="link-btn">Quản lý dữ liệu thủ tục</a>
+    </div>
+
+    <!-- Màn hình hội thoại: hiện sau khi bấm bắt đầu -->
+    <div class="chat-card" id="chatCard" hidden>
+      <div class="chat-topbar">
+        <div class="wave" id="wave" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div id="status">Đang lắng nghe...</div>
+      </div>
+
+      <div class="chat-log" id="chatLog"></div>
+
+      <button id="stopBtn">Kết thúc hỗ trợ</button>
     </div>
   </main>
 
   <footer>Dịch vụ hỗ trợ bằng trí tuệ nhân tạo — vui lòng đối chiếu thông tin quan trọng với cán bộ.</footer>
 
-<script>
-const avatar = document.getElementById('avatar');
-const statusEl = document.getElementById('status');
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-
-let ws = null;
-let audioContext = null;
-let micStream = null;
-let workletNode = null;
-
-// --- Phát audio trả lời của AI (PCM 24kHz mono từ Gemini Live API) ---
-let playbackContext = null;
-let nextPlayTime = 0;
-
-function playPcmChunk(base64Pcm) {
-  if (!playbackContext) {
-    playbackContext = new AudioContext({ sampleRate: 24000 });
-    nextPlayTime = playbackContext.currentTime;
-  }
-  const bytes = Uint8Array.from(atob(base64Pcm), c => c.charCodeAt(0));
-  const int16 = new Int16Array(bytes.buffer);
-  const float32 = new Float32Array(int16.length);
-  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-
-  const buffer = playbackContext.createBuffer(1, float32.length, 24000);
-  buffer.copyToChannel(float32, 0);
-
-  const source = playbackContext.createBufferSource();
-  source.buffer = buffer;
-  source.connect(playbackContext.destination);
-
-  const startAt = Math.max(nextPlayTime, playbackContext.currentTime);
-  source.start(startAt);
-  nextPlayTime = startAt + buffer.duration;
-
-  avatar.classList.add('speaking');
-  source.onended = () => {
-    if (playbackContext.currentTime >= nextPlayTime - 0.05) {
-      avatar.classList.remove('speaking');
-    }
-  };
-}
-
-// --- Ghi âm micro, resample về 16kHz PCM, gửi qua WebSocket ---
-function resampleTo16k(input, inputRate) {
-  if (inputRate === 16000) return input;
-  const ratio = inputRate / 16000;
-  const outLength = Math.floor(input.length / ratio);
-  const output = new Float32Array(outLength);
-  for (let i = 0; i < outLength; i++) output[i] = input[Math.floor(i * ratio)];
-  return output;
-}
-
-function floatTo16BitPcm(input) {
-  const buffer = new ArrayBuffer(input.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return buffer;
-}
-
-function toBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-async function start() {
-  statusEl.textContent = 'Đang kết nối...';
-  ws = new WebSocket(`ws://${location.host}/ws`);
-
-  ws.onopen = async () => {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioContext = new AudioContext();
-    await audioContext.audioWorklet.addModule('/worklet.js');
-
-    const source = audioContext.createMediaStreamSource(micStream);
-    workletNode = new AudioWorkletNode(audioContext, 'mic-processor');
-    workletNode.port.onmessage = (e) => {
-      const resampled = resampleTo16k(e.data, audioContext.sampleRate);
-      const pcm = floatTo16BitPcm(resampled);
-      ws.send(JSON.stringify({ type: 'audio', data: toBase64(pcm) }));
-    };
-    source.connect(workletNode);
-
-    statusEl.textContent = 'Đang lắng nghe...';
-    avatar.classList.add('listening');
-    startBtn.style.display = 'none';
-    stopBtn.style.display = 'inline-block';
-  };
-
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    if (msg.type === 'audio') {
-      playPcmChunk(msg.data);
-    } else if (msg.type === 'user_speaking_start') {
-      statusEl.textContent = 'Đang nghe bạn nói...';
-      avatar.classList.add('listening');
-    } else if (msg.type === 'user_speaking_end') {
-      statusEl.textContent = 'Đang suy nghĩ...';
-      avatar.classList.remove('listening');
-    } else if (msg.type === 'turn_complete') {
-      statusEl.textContent = 'Đang lắng nghe...';
-    } else if (msg.type === 'interrupted') {
-      statusEl.textContent = 'Đang lắng nghe...';
-      avatar.classList.remove('speaking');
-      nextPlayTime = playbackContext ? playbackContext.currentTime : 0;
-    }
-  };
-
-  ws.onclose = () => resetUi();
-}
-
-function stop() {
-  if (ws) {
-    ws.send(JSON.stringify({ type: 'stop' }));
-    ws.close();
-  }
-  resetUi();
-}
-
-function resetUi() {
-  if (workletNode) workletNode.disconnect();
-  if (micStream) micStream.getTracks().forEach(t => t.stop());
-  if (audioContext) audioContext.close();
-  avatar.classList.remove('listening', 'speaking');
-  statusEl.textContent = 'Sẵn sàng hỗ trợ';
-  startBtn.style.display = 'inline-block';
-  stopBtn.style.display = 'none';
-  ws = null;
-}
-
-startBtn.onclick = start;
-stopBtn.onclick = stop;
-</script>
+  <script src="/app.js"></script>
 </body>
 </html>

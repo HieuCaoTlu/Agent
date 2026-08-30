@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 .uv/
 uv.lock
+
+# Log hội thoại và PDF nguồn tải lên — dữ liệu runtime/nhạy cảm, không commit.
+# data/index.json và data/procedures/ (đã parse) vẫn được track vì app cần
+# chúng để chạy được ngay sau khi clone, không phải build_index.py lại từ đầu.
+data/logs/
+data/pdfs/

@@ -1,0 +1,106 @@
+/* CSS riêng cho trang quản lý dữ liệu thủ tục (manage.html) — dùng chung
+   biến màu/font với styles.css (đã import trước file này). */
+
+main { align-items: flex-start; }
+
+.manage-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 32px 40px;
+  max-width: 640px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.back-link {
+  color: var(--text-secondary);
+  font-size: 16px;
+  text-decoration: none;
+}
+.back-link:hover { color: var(--color-secondary); }
+
+.manage-card section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manage-card h1 {
+  font-size: 16px;
+  margin: 0;
+  color: var(--color-secondary);
+}
+
+.hint { font-size: 13px; color: var(--text-secondary); margin: 0; }
+
+#uploadForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#uploadForm label { font-size: 13px; color: var(--text-primary); margin-top: 6px; }
+#uploadForm input[type="file"],
+#uploadForm input[type="url"] {
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: inherit;
+}
+#uploadForm button {
+  margin-top: 12px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 15px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  width: fit-content;
+}
+#uploadForm button:hover { background: var(--color-secondary); }
+
+#uploadStatus { font-size: 13px; min-height: 18px; color: var(--text-secondary); }
+#uploadStatus.ok { color: #2f7d3c; }
+#uploadStatus.error { color: var(--color-secondary); }
+
+#procedureList { display: flex; flex-direction: column; gap: 8px; }
+
+.procedure-item {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.procedure-item .procedure-info { min-width: 0; flex: 1; }
+.procedure-item .name { font-weight: 700; color: var(--text-primary); }
+.procedure-item .code { color: var(--text-secondary); font-size: 12px; }
+.procedure-item a { color: var(--color-primary); font-size: 12px; }
+
+.delete-btn {
+  /* styles.css đặt width: 100% cho mọi <button> — override tường minh,
+     nếu không nút này cố chiếm hết chiều rộng .procedure-item, đẩy
+     .procedure-info co về 0 khiến tên thủ tục vỡ dòng theo từng chữ. */
+  width: auto;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-secondary);
+  color: var(--color-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.delete-btn:hover { background: #fbeceb; }
+.delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.empty-hint { font-size: 13px; color: var(--text-secondary); }

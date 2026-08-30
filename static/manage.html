@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quản lý dữ liệu thủ tục — Dịch vụ công</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/manage.css" />
+</head>
+<body>
+  <header class="gov-header">
+    <div class="title">
+      <strong>Quản lý dữ liệu thủ tục</strong>
+      <span>Cổng hỗ trợ dịch vụ công trực tuyến</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="manage-card">
+      <a href="/" class="back-link">&larr; Quay lại trợ lý giọng nói</a>
+
+      <section>
+        <h1>Tải lên thủ tục mới</h1>
+        <form id="uploadForm">
+          <label for="pdfInput">File PDF</label>
+          <input type="file" id="pdfInput" accept="application/pdf" required />
+
+          <label for="urlInput">Đường dẫn thủ tục trên dichvucong.gov.vn (không bắt buộc)</label>
+          <input
+            type="url"
+            id="urlInput"
+            placeholder="https://dichvucong.gov.vn/thu-tuc-hanh-chinh/..."
+          />
+
+          <button type="submit">Tải lên</button>
+          <div id="uploadStatus"></div>
+        </form>
+      </section>
+
+      <section>
+        <h1>Thủ tục đang hỗ trợ</h1>
+        <div id="procedureList">Đang tải...</div>
+      </section>
+    </div>
+  </main>
+
+  <footer>Dịch vụ hỗ trợ bằng trí tuệ nhân tạo — vui lòng đối chiếu thông tin quan trọng với cán bộ.</footer>
+
+  <script src="/manage.js"></script>
+</body>
+</html>
