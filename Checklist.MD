@@ -1007,25 +1007,32 @@
 ## Q. Đóng gói và chạy
 
 - [x] Viết `docker-compose.yml` cho local: PostgreSQL, Redis, backend, frontend — **Hiện
-      thực (30/8/2026)**: mở rộng [docker-compose.yml](docker-compose.yml) đã có sẵn
-      postgres/redis (từ trước phần Q) thêm service `backend` (build từ
-      [Dockerfile](Dockerfile) gốc dự án, override `DATABASE_URL`/`REDIS_URL` trỏ tên
-      service thay vì `localhost`) và `frontend` (build từ
-      [frontend/Dockerfile](frontend/Dockerfile), expose `:5173`→`:80`). Xác nhận cú pháp
-      hợp lệ bằng `docker compose config` (in ra plan đầy đủ, đúng biến môi trường) — **không
-      build/chạy được image thực sự trong môi trường này** vì Docker daemon không sẵn sàng
-      (`docker build` báo lỗi kết nối `dockerDesktopLinuxEngine`), không phải lỗi cấu hình.
-      Cần build-test thủ công trên máy có Docker Desktop đang chạy trước khi tin cậy hoàn toàn.
-- [x] Viết `Dockerfile` cho backend — **Hiện thực (30/8/2026)**: [Dockerfile](Dockerfile) —
-      `python:3.12-slim`, cài qua `uv sync --frozen` (khớp chính xác `uv.lock` đã dùng suốt
-      dự án thay vì pip trực tiếp), tách layer cache (copy `pyproject.toml`/`uv.lock` trước
-      code), entrypoint chạy `alembic upgrade head` rồi `uvicorn` (đơn giản, phù hợp MVP một
-      instance — ghi chú rõ trong Dockerfile rằng môi trường nhiều instance cần tách migration
-      ra job riêng). Cũng thêm [.dockerignore](.dockerignore) và
-      [frontend/Dockerfile](frontend/Dockerfile) (build tĩnh + nginx, kèm
-      [frontend/nginx.conf](frontend/nginx.conf) proxy `/api` sang backend, SPA fallback) —
-      không nằm trong yêu cầu gốc của mục này (chỉ nêu backend) nhưng cần thiết để
-      docker-compose ở mục trên chạy được toàn bộ ứng dụng bằng một lệnh.
+      thực (30/8/2026), build-test thật xác nhận sau (30/8/2026)**: mở rộng
+      [docker-compose.yml](docker-compose.yml) đã có sẵn postgres/redis (từ trước phần Q)
+      thêm service `backend` (build từ [Dockerfile](Dockerfile) gốc dự án, override
+      `DATABASE_URL`/`REDIS_URL` trỏ tên service thay vì `localhost`) và `frontend` (build từ
+      [frontend/Dockerfile](frontend/Dockerfile), expose `:5173`→`:80`). Đã chạy
+      `docker compose up --build` thật (Docker Desktop bật sau) — cả 4 container lên
+      `healthy`/`running`, `GET /health` trả `database: ok, redis: ok`, 3 provider mock đều
+      `ok`, frontend `GET /` trả 200, và proxy `frontend:5173/api/v1/...` → backend hoạt động
+      đúng (xác nhận qua `GET /api/v1/procedures`, trả `[]` vì đúng logic nghiệp vụ — catalog
+      có `effective_from: 2026-09-01`, ngày hệ thống lúc test là 30/8/2026, không phải lỗi).
+      Phát hiện và sửa 1 lỗi thật trong lần build đầu — xem ghi chú Dockerfile bên dưới.
+- [x] Viết `Dockerfile` cho backend — **Hiện thực (30/8/2026), build-test thật xác nhận sau
+      (30/8/2026)**: [Dockerfile](Dockerfile) — `python:3.12-slim`, cài qua `uv sync --frozen`
+      (khớp chính xác `uv.lock` đã dùng suốt dự án thay vì pip trực tiếp), tách layer cache
+      (copy `pyproject.toml`/`uv.lock` trước code), entrypoint chạy `alembic upgrade head` rồi
+      `uvicorn` (đơn giản, phù hợp MVP một instance — ghi chú rõ trong Dockerfile rằng môi
+      trường nhiều instance cần tách migration ra job riêng). **Lỗi thật phát hiện khi
+      build-test**: `pyproject.toml` khai `readme = "README.md"`, nhưng layer cài đặt project
+      (`uv sync --frozen --no-dev`, không có `--no-install-project`) chạy trước khi
+      `README.md` được copy vào image — hatchling validate field `readme` khi build package,
+      báo `OSError: Readme file does not exist` và build thất bại. Sửa bằng cách copy
+      `README.md` cùng `alembic.ini` trước bước `uv sync` thứ hai. Cũng thêm
+      [.dockerignore](.dockerignore) và [frontend/Dockerfile](frontend/Dockerfile) (build
+      tĩnh + nginx, kèm [frontend/nginx.conf](frontend/nginx.conf) proxy `/api` sang backend,
+      SPA fallback) — không nằm trong yêu cầu gốc của mục này (chỉ nêu backend) nhưng cần
+      thiết để docker-compose ở mục trên chạy được toàn bộ ứng dụng bằng một lệnh.
 - [x] Viết `README.md` hướng dẫn chạy local — **Hiện thực (30/8/2026)**:
       [README.md](README.md) viết lại hoàn chỉnh — 2 cách chạy (Docker Compose toàn bộ, hoặc
       chỉ DB/Redis qua Docker + backend/frontend trực tiếp), bảng biến môi trường theo nhóm,
