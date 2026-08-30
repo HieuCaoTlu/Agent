@@ -1,53 +1,34 @@
 import asyncio
-import base64
-import os
 import shutil
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from google import genai
-from google.genai import types
 
 import build_index
 from app import dom_ai
 from app import submit_flow
+from app import text_model
+from app import voice_provider
 from app.conversation_log import ConversationLogger
 from app.extension_bridge import ExtensionCommandError, ExtensionNotConnected, extension_manager
 from app.rag import get_routing_index, reload_index
 
-TEXT_MODEL = "gemini-2.5-flash"
-
 SUBMIT_PROVINCE = "Thành phố Hà Nội"
 SUBMIT_WARD = "Yên Sở"
 
-load_dotenv()
-
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-MODEL = "gemini-2.5-flash-native-audio-latest"
-
 app = FastAPI()
-client = genai.Client(api_key=GEMINI_API_KEY)
 
-LIVE_CONFIG = types.LiveConnectConfig(
-    response_modalities=[types.Modality.AUDIO],
-    system_instruction=(
-        "Bạn là một trợ lý giọng nói thân thiện, trả lời bằng tiếng Việt, "
-        "ngắn gọn, tự nhiên như đang trò chuyện trực tiếp."
-    ),
-    input_audio_transcription=types.AudioTranscriptionConfig(),
-    output_audio_transcription=types.AudioTranscriptionConfig(),
-    realtime_input_config=types.RealtimeInputConfig(
-        automatic_activity_detection=types.AutomaticActivityDetection(
-            start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
-            end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
-            prefix_padding_ms=300,
-            silence_duration_ms=800,
-        )
-    ),
-)
+_background_tasks: set[asyncio.Task] = set()
+_voice_session_active = False
+
+
+def _track_task(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 async def _extract_procedure_name(history: list[tuple[str, str]]) -> str | None:
@@ -65,24 +46,54 @@ async def _extract_procedure_name(history: list[tuple[str, str]]) -> str | None:
         "được thủ tục nào, trả về đúng chữ KHONG_RO."
     )
 
-    response = await client.aio.models.generate_content(model=TEXT_MODEL, contents=prompt)
-    name = (response.text or "").strip()
+    response_text = await text_model.generate_text(prompt)
+    name = response_text.strip()
     if not name or name == "KHONG_RO":
         return None
     return name
 
 
+_MAX_SUBMIT_ATTEMPTS = 3
+
+
 async def _handle_submit_procedure(
-    websocket: WebSocket, history: list[tuple[str, str]], log: ConversationLogger
+    websocket: WebSocket,
+    history: list[tuple[str, str]],
+    log: ConversationLogger,
+    procedure_name: str | None = None,
 ) -> None:
+    for attempt in range(1, _MAX_SUBMIT_ATTEMPTS + 1):
+        is_last_attempt = attempt == _MAX_SUBMIT_ATTEMPTS
+        if attempt > 1:
+            log.submit_action("retry_attempt", {"attempt": attempt})
+            await websocket.send_json(
+                {"type": "submit_procedure_status", "message": f"Đang thử lại lần {attempt}/{_MAX_SUBMIT_ATTEMPTS}..."}
+            )
+        ok = await _attempt_submit_procedure(websocket, history, log, procedure_name, report_error=is_last_attempt)
+        if ok:
+            return
+        if not is_last_attempt:
+            await asyncio.sleep(1.5)
+
+
+async def _attempt_submit_procedure(
+    websocket: WebSocket,
+    history: list[tuple[str, str]],
+    log: ConversationLogger,
+    procedure_name: str | None,
+    report_error: bool,
+) -> bool:
     try:
-        procedure_name = await _extract_procedure_name(history)
-        log.submit_action("extract_procedure_name", {"procedure_name": procedure_name})
+        if procedure_name:
+            log.submit_action("extract_procedure_name", {"procedure_name": procedure_name, "source": "manual"})
+        else:
+            procedure_name = await _extract_procedure_name(history)
+            log.submit_action("extract_procedure_name", {"procedure_name": procedure_name, "source": "gemini"})
         if not procedure_name:
             await websocket.send_json(
                 {"type": "submit_procedure_error", "message": "Không xác định được thủ tục cần nộp."}
             )
-            return
+            return True
 
         await websocket.send_json({"type": "submit_procedure_status", "message": f"Đang tìm kiếm: {procedure_name}..."})
         search_url = submit_flow.build_search_url(procedure_name)
@@ -103,7 +114,7 @@ async def _handle_submit_procedure(
             await websocket.send_json(
                 {"type": "submit_procedure_error", "message": "Không tìm thấy thủ tục trên dichvucong.gov.vn."}
             )
-            return
+            return True
         await extension_manager.send_command("click_selector", {"selector": pick["result_selector"]})
         log.submit_action("click_search_result_done", {"selector": pick["result_selector"]})
 
@@ -122,108 +133,63 @@ async def _handle_submit_procedure(
                 "message": "Đã điền sẵn tỉnh/phường. Vui lòng tự bấm \"Nộp trực tuyến\" và đăng nhập để hoàn tất.",
             }
         )
+        return True
     except ExtensionNotConnected:
         log.submit_error("extension_connection", "Chưa cài hoặc chưa kết nối tiện ích mở rộng trình duyệt.")
-        await websocket.send_json(
-            {
-                "type": "submit_procedure_error",
-                "message": "Chưa cài hoặc chưa kết nối tiện ích mở rộng trình duyệt.",
-            }
-        )
+        if report_error:
+            await websocket.send_json(
+                {
+                    "type": "submit_procedure_error",
+                    "message": "Chưa cài hoặc chưa kết nối tiện ích mở rộng trình duyệt.",
+                }
+            )
+        return False
     except TimeoutError:
         log.submit_error("timeout", "Tiện ích mở rộng không phản hồi kịp thời (quá 20s).")
-        await websocket.send_json(
-            {"type": "submit_procedure_error", "message": "Tiện ích mở rộng không phản hồi kịp thời."}
-        )
+        if report_error:
+            await websocket.send_json(
+                {"type": "submit_procedure_error", "message": "Tiện ích mở rộng không phản hồi kịp thời."}
+            )
+        return False
     except ExtensionCommandError as exc:
         log.submit_error("extension_command", str(exc))
-        await websocket.send_json(
-            {"type": "submit_procedure_error", "message": f"Lỗi thao tác trên trang: {exc}"}
-        )
+        if report_error:
+            await websocket.send_json(
+                {"type": "submit_procedure_error", "message": f"Lỗi thao tác trên trang: {exc}"}
+            )
+        return False
     except Exception as exc:
         log.submit_error("unexpected", repr(exc))
-        await websocket.send_json(
-            {"type": "submit_procedure_error", "message": f"Lỗi không xác định: {exc}"}
-        )
+        if report_error:
+            await websocket.send_json(
+                {"type": "submit_procedure_error", "message": f"Lỗi không xác định: {exc}"}
+            )
+        return False
 
 
 @app.websocket("/ws")
 async def voice_ws(websocket: WebSocket) -> None:
+    global _voice_session_active
     await websocket.accept()
+    if _voice_session_active:
+        await websocket.send_json(
+            {"type": "submit_procedure_error", "message": "Đã có một phiên trợ lý giọng nói khác đang hoạt động."}
+        )
+        await websocket.close()
+        return
+    _voice_session_active = True
+
     log = ConversationLogger()
     history: list[tuple[str, str]] = []
 
-    async with client.aio.live.connect(model=MODEL, config=LIVE_CONFIG) as session:
+    def on_submit_procedure(procedure_name: str | None) -> None:
+        _track_task(_handle_submit_procedure(websocket, history, log, procedure_name=procedure_name))
 
-        async def from_browser_to_gemini() -> None:
-            while True:
-                message = await websocket.receive_json()
-                if message.get("type") == "audio":
-                    pcm_bytes = base64.b64decode(message["data"])
-                    await session.send_realtime_input(
-                        audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm;rate=16000")
-                    )
-                elif message.get("type") == "submit_procedure":
-                    asyncio.create_task(_handle_submit_procedure(websocket, history, log))
-                elif message.get("type") == "stop":
-                    return
-
-        async def from_gemini_to_browser() -> None:
-            user_buffer = ""
-            ai_buffer = ""
-            submit_hint_shown = False
-            while True:
-                async for chunk in session.receive():
-                    if chunk.voice_activity:
-                        activity = chunk.voice_activity.voice_activity_type
-                        if activity == types.VoiceActivityType.ACTIVITY_START:
-                            await websocket.send_json({"type": "user_speaking_start"})
-                        elif activity == types.VoiceActivityType.ACTIVITY_END:
-                            await websocket.send_json({"type": "user_speaking_end"})
-                    if chunk.data:
-                        await websocket.send_json(
-                            {"type": "audio", "data": base64.b64encode(chunk.data).decode()}
-                        )
-                    content = chunk.server_content
-                    if content and content.input_transcription and content.input_transcription.text:
-                        text = content.input_transcription.text
-                        user_buffer += text
-                        await websocket.send_json({"type": "user_transcript", "text": text})
-                    if content and content.output_transcription and content.output_transcription.text:
-                        text = content.output_transcription.text
-                        ai_buffer += text
-                        await websocket.send_json({"type": "ai_transcript", "text": text})
-                    if not submit_hint_shown and ("nộp" in user_buffer.lower() or "nộp" in ai_buffer.lower()):
-                        submit_hint_shown = True
-                        await websocket.send_json({"type": "show_submit_button"})
-                    if content and content.interrupted:
-                        await websocket.send_json({"type": "interrupted"})
-                        if user_buffer:
-                            log.user_transcript(user_buffer)
-                            history.append(("Người dùng", user_buffer))
-                            user_buffer = ""
-                        if ai_buffer:
-                            log.ai_transcript(ai_buffer)
-                            history.append(("Trợ lý", ai_buffer))
-                            ai_buffer = ""
-                    if content and content.turn_complete:
-                        await websocket.send_json({"type": "turn_complete"})
-                        submit_hint_shown = False
-                        if user_buffer:
-                            log.user_transcript(user_buffer)
-                            history.append(("Người dùng", user_buffer))
-                            user_buffer = ""
-                        if ai_buffer:
-                            log.ai_transcript(ai_buffer)
-                            history.append(("Trợ lý", ai_buffer))
-                            ai_buffer = ""
-
-        try:
-            await asyncio.gather(from_browser_to_gemini(), from_gemini_to_browser())
-        except WebSocketDisconnect:
-            pass
-        finally:
-            log.session_end()
+    try:
+        await voice_provider.run_voice_session(websocket, log, history, on_submit_procedure)
+    finally:
+        log.session_end()
+        _voice_session_active = False
 
 
 @app.websocket("/extension")

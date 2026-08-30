@@ -3,23 +3,52 @@ const chatCard = document.getElementById('chatCard');
 const wave = document.getElementById('wave');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
+const testSubmitBtn = document.getElementById('testSubmitBtn');
 const stopBtn = document.getElementById('stopBtn');
-const submitBtn = document.getElementById('submitBtn');
+const talkBtn = document.getElementById('talkBtn');
+const submitPrompt = document.getElementById('submitPrompt');
+const autoSubmitBtn = document.getElementById('autoSubmitBtn');
+const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
+const retryBtn = document.getElementById('retryBtn');
 const chatLog = document.getElementById('chatLog');
+
+const AUTO_SUBMIT_COUNTDOWN_SEC = 3;
 
 let ws = null;
 let audioContext = null;
 let micStream = null;
 let workletNode = null;
+let isTalking = false;
+let lastSubmitRequest = null;
+let autoSubmitTimer = null;
+let autoSubmitSecondsLeft = 0;
 
 let pendingUserBubble = null;
 let pendingAiBubble = null;
+let typingBubble = null;
 
 function setWaveState(state) {
   wave.className = 'wave ' + state;
 }
 
+function showTypingBubble() {
+  hideTypingBubble();
+  typingBubble = document.createElement('div');
+  typingBubble.className = 'bubble ai typing';
+  typingBubble.innerHTML = '<span></span><span></span><span></span>';
+  chatLog.appendChild(typingBubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function hideTypingBubble() {
+  if (typingBubble) {
+    typingBubble.remove();
+    typingBubble = null;
+  }
+}
+
 function appendTranscript(text, who) {
+  if (who === 'ai') hideTypingBubble();
   let bubble = who === 'user' ? pendingUserBubble : pendingAiBubble;
   if (!bubble) {
     bubble = document.createElement('div');
@@ -34,6 +63,7 @@ function appendTranscript(text, who) {
 function finalizeTurn() {
   pendingUserBubble = null;
   pendingAiBubble = null;
+  hideTypingBubble();
 }
 
 function renderProcedureCard(data) {
@@ -84,6 +114,8 @@ function renderProcedureCard(data) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+const PLAYBACK_BUFFER_SEC = 0.12;
+
 let playbackContext = null;
 let nextPlayTime = 0;
 
@@ -104,7 +136,10 @@ function playPcmChunk(base64Pcm) {
   source.buffer = buffer;
   source.connect(playbackContext.destination);
 
-  const startAt = Math.max(nextPlayTime, playbackContext.currentTime);
+  const isNewTurn = nextPlayTime <= playbackContext.currentTime;
+  const startAt = isNewTurn
+    ? playbackContext.currentTime + PLAYBACK_BUFFER_SEC
+    : Math.max(nextPlayTime, playbackContext.currentTime);
   source.start(startAt);
   nextPlayTime = startAt + buffer.duration;
 
@@ -142,11 +177,105 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
+function startAutoSubmitCountdown() {
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = false;
+  autoSubmitSecondsLeft = AUTO_SUBMIT_COUNTDOWN_SEC;
+  autoSubmitBtn.textContent = `Tự động nộp (${autoSubmitSecondsLeft}s)`;
+  autoSubmitTimer = setInterval(() => {
+    autoSubmitSecondsLeft -= 1;
+    if (autoSubmitSecondsLeft <= 0) {
+      stopAutoSubmitCountdown();
+      submitPrompt.hidden = true;
+      submitProcedure();
+      return;
+    }
+    autoSubmitBtn.textContent = `Tự động nộp (${autoSubmitSecondsLeft}s)`;
+  }, 1000);
+}
+
+function stopAutoSubmitCountdown() {
+  if (autoSubmitTimer) {
+    clearInterval(autoSubmitTimer);
+    autoSubmitTimer = null;
+  }
+}
+
+function cancelAutoSubmit() {
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = true;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'cancel_submit' }));
+  }
+}
+
+function handleWsMessage(event) {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'audio') {
+    playPcmChunk(msg.data);
+  } else if (msg.type === 'show_submit_button') {
+    startAutoSubmitCountdown();
+  } else if (msg.type === 'submit_procedure_status') {
+    statusEl.textContent = msg.message;
+  } else if (msg.type === 'submit_procedure_done') {
+    statusEl.textContent = msg.message || 'Đã mở thủ tục trên dichvucong.gov.vn — vui lòng kiểm tra và bấm "Nộp trực tuyến" nếu đúng.';
+  } else if (msg.type === 'submit_procedure_error') {
+    statusEl.textContent = 'Lỗi: ' + msg.message;
+    retryBtn.hidden = false;
+  } else if (msg.type === 'searching') {
+    statusEl.textContent = 'Đang tra cứu thông tin thủ tục...';
+  } else if (msg.type === 'procedure_card') {
+    finalizeTurn();
+    renderProcedureCard(msg.data);
+  } else if (msg.type === 'user_transcript') {
+    appendTranscript(msg.text, 'user');
+  } else if (msg.type === 'ai_transcript') {
+    appendTranscript(msg.text, 'ai');
+  } else if (msg.type === 'turn_complete') {
+    finalizeTurn();
+    if (!isTalking) statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
+    setWaveState('idle');
+  } else if (msg.type === 'interrupted') {
+    finalizeTurn();
+    if (!isTalking) statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
+    setWaveState('idle');
+    nextPlayTime = playbackContext ? playbackContext.currentTime : 0;
+  }
+}
+
+function setTalking(talking) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isTalking = talking;
+  if (talking) {
+    ws.send(JSON.stringify({ type: 'activity_start' }));
+    talkBtn.textContent = 'Đang nói... (nhấn để dừng)';
+    talkBtn.classList.add('talking');
+    statusEl.textContent = 'Đang nghe bạn nói...';
+    setWaveState('listening');
+  } else {
+    ws.send(JSON.stringify({ type: 'activity_end' }));
+    talkBtn.textContent = 'Nhấn để nói';
+    talkBtn.classList.remove('talking');
+    statusEl.textContent = 'Đang suy nghĩ...';
+    setWaveState('idle');
+    showTypingBubble();
+  }
+}
+
+function toggleTalking() {
+  setTalking(!isTalking);
+}
+
 async function start() {
   idleCard.hidden = true;
   chatCard.hidden = false;
   chatLog.innerHTML = '';
-  submitBtn.hidden = true;
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = true;
+  retryBtn.hidden = true;
+  isTalking = false;
+  talkBtn.textContent = 'Nhấn để nói';
+  talkBtn.classList.remove('talking');
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
 
@@ -160,55 +289,41 @@ async function start() {
     const source = audioContext.createMediaStreamSource(micStream);
     workletNode = new AudioWorkletNode(audioContext, 'mic-processor');
     workletNode.port.onmessage = (e) => {
+      if (!isTalking || !ws || ws.readyState !== WebSocket.OPEN) return;
       const resampled = resampleTo16k(e.data, audioContext.sampleRate);
       const pcm = floatTo16BitPcm(resampled);
       ws.send(JSON.stringify({ type: 'audio', data: toBase64(pcm) }));
     };
     source.connect(workletNode);
 
-    statusEl.textContent = 'Đang lắng nghe...';
+    statusEl.textContent = 'Nhấn nút hoặc Enter để bắt đầu nói';
     setWaveState('idle');
   };
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    if (msg.type === 'audio') {
-      playPcmChunk(msg.data);
-    } else if (msg.type === 'user_speaking_start') {
-      statusEl.textContent = 'Đang nghe bạn nói...';
-      setWaveState('listening');
-    } else if (msg.type === 'user_speaking_end') {
-      statusEl.textContent = 'Đang suy nghĩ...';
-      setWaveState('idle');
-    } else if (msg.type === 'show_submit_button') {
-      submitBtn.hidden = false;
-    } else if (msg.type === 'submit_procedure_status') {
-      statusEl.textContent = msg.message;
-    } else if (msg.type === 'submit_procedure_done') {
-      statusEl.textContent = msg.message || 'Đã mở thủ tục trên dichvucong.gov.vn — vui lòng kiểm tra và bấm "Nộp trực tuyến" nếu đúng.';
-    } else if (msg.type === 'submit_procedure_error') {
-      statusEl.textContent = 'Lỗi: ' + msg.message;
-    } else if (msg.type === 'searching') {
-      statusEl.textContent = 'Đang tra cứu thông tin thủ tục...';
-    } else if (msg.type === 'procedure_card') {
-      finalizeTurn();
-      renderProcedureCard(msg.data);
-    } else if (msg.type === 'user_transcript') {
-      appendTranscript(msg.text, 'user');
-    } else if (msg.type === 'ai_transcript') {
-      appendTranscript(msg.text, 'ai');
-    } else if (msg.type === 'turn_complete') {
-      finalizeTurn();
-      statusEl.textContent = 'Đang lắng nghe...';
-      setWaveState('idle');
-    } else if (msg.type === 'interrupted') {
-      finalizeTurn();
-      statusEl.textContent = 'Đang lắng nghe...';
-      setWaveState('idle');
-      nextPlayTime = playbackContext ? playbackContext.currentTime : 0;
-    }
+  ws.onmessage = handleWsMessage;
+  ws.onclose = () => resetUi();
+}
+
+function startSubmitTest(procedureName) {
+  idleCard.hidden = true;
+  chatCard.hidden = false;
+  chatLog.innerHTML = '';
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = true;
+  retryBtn.hidden = true;
+  setWaveState('idle');
+  statusEl.textContent = 'Đang kết nối...';
+
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    const request = { type: 'submit_procedure', procedure_name: procedureName };
+    lastSubmitRequest = request;
+    statusEl.textContent = `Đang xử lý yêu cầu nộp hồ sơ: ${procedureName}...`;
+    ws.send(JSON.stringify(request));
   };
 
+  ws.onmessage = handleWsMessage;
   ws.onclose = () => resetUi();
 }
 
@@ -229,21 +344,53 @@ function resetUi() {
     playbackContext = null;
   }
   nextPlayTime = 0;
+  isTalking = false;
+  lastSubmitRequest = null;
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = true;
   finalizeTurn();
   setWaveState('idle');
   chatCard.hidden = true;
   idleCard.hidden = false;
+  retryBtn.hidden = true;
   ws = null;
+}
+
+function retry() {
+  if (ws && ws.readyState === WebSocket.OPEN && lastSubmitRequest) {
+    retryBtn.hidden = true;
+    statusEl.textContent = 'Đang thử lại...';
+    ws.send(JSON.stringify(lastSubmitRequest));
+    return;
+  }
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+  }
+  resetUi();
 }
 
 function submitProcedure() {
   if (!ws) return;
-  submitBtn.disabled = true;
+  stopAutoSubmitCountdown();
+  submitPrompt.hidden = true;
+  const request = { type: 'submit_procedure' };
+  lastSubmitRequest = request;
   statusEl.textContent = 'Đang xử lý yêu cầu nộp hồ sơ...';
-  ws.send(JSON.stringify({ type: 'submit_procedure' }));
-  setTimeout(() => { submitBtn.disabled = false; }, 5000);
+  ws.send(JSON.stringify(request));
 }
 
 startBtn.onclick = start;
 stopBtn.onclick = stop;
-submitBtn.onclick = submitProcedure;
+talkBtn.onclick = toggleTalking;
+autoSubmitBtn.onclick = submitProcedure;
+cancelSubmitBtn.onclick = cancelAutoSubmit;
+retryBtn.onclick = retry;
+testSubmitBtn.onclick = () => startSubmitTest('Đăng ký khai sinh');
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || chatCard.hidden) return;
+  const activeTag = document.activeElement && document.activeElement.tagName;
+  if (activeTag === 'BUTTON') e.preventDefault();
+  toggleTalking();
+});

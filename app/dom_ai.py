@@ -1,17 +1,6 @@
-import json
-import os
-
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-
-load_dotenv()
-
-TEXT_MODEL = "gemini-2.5-flash"
+from app import text_model
 
 _MAX_HTML_CHARS = 60_000
-
-_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
 async def pick_search_result(html: str, procedure_name: str) -> dict:
@@ -30,9 +19,4 @@ async def pick_search_result(html: str, procedure_name: str) -> dict:
         "(document.querySelector() phải chọn đúng 1 phần tử). Nếu không có "
         f"kết quả nào phù hợp, trả null.\n\nHTML:\n{html[:_MAX_HTML_CHARS]}"
     )
-    response = await _client.aio.models.generate_content(
-        model=TEXT_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema),
-    )
-    return json.loads(response.text)
+    return await text_model.generate_json(prompt, schema)

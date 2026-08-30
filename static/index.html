@@ -21,8 +21,9 @@
         <span class="bar"></span><span class="bar"></span><span class="bar"></span>
         <span class="bar"></span><span class="bar"></span>
       </div>
-      <h1>Trợ lý sẽ lắng nghe và trả lời trực tiếp bằng giọng nói</h1>
+      <h1>Nhấn giữ hoặc bấm nút để nói, trợ lý sẽ trả lời trực tiếp bằng giọng nói</h1>
       <button id="startBtn">Bắt đầu hỗ trợ</button>
+      <button id="testSubmitBtn" class="secondary-btn">Test nộp: Đăng ký khai sinh</button>
 
       <a href="/manage.html" class="link-btn">Quản lý dữ liệu thủ tục</a>
     </div>
@@ -33,12 +34,17 @@
           <span></span><span></span><span></span><span></span><span></span>
           <span></span><span></span><span></span><span></span>
         </div>
-        <div id="status">Đang lắng nghe...</div>
+        <div id="status">Nhấn nút hoặc Enter để bắt đầu nói</div>
       </div>
 
       <div class="chat-log" id="chatLog"></div>
 
-      <button id="submitBtn" hidden>Nộp hồ sơ</button>
+      <button id="talkBtn">Nhấn để nói</button>
+      <div class="submit-prompt" id="submitPrompt" hidden>
+        <button id="autoSubmitBtn">Tự động nộp</button>
+        <button id="cancelSubmitBtn">Hủy nộp</button>
+      </div>
+      <button id="retryBtn" hidden>Thử lại</button>
       <button id="stopBtn">Kết thúc hỗ trợ</button>
     </div>
   </main>
