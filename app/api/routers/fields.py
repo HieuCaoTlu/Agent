@@ -2,7 +2,7 @@
 
 Cố ý KHÔNG có endpoint xác nhận hàng loạt (bulk confirm) — NT-1/NT-3: AI hỗ
 trợ, không thay thế công chức; cán bộ phải xác nhận từng trường một. Khẳng
-định bằng test `tests/api/test_fields_router.py::test_no_bulk_confirm_endpoint`.
+định bằng test `tests/api/test_no_bulk_confirm.py`.
 """
 
 import uuid

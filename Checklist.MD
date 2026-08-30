@@ -944,12 +944,36 @@
 
 > Chỉ giữ những test bảo vệ đúng các nguyên tắc lõi và luồng chính có thể chạy được — không xây bộ test toàn diện ở MVP này.
 
-- [ ] Test state machine: các chuyển đổi hợp lệ chính (theo luồng UC1) và một vài trường hợp bất hợp lệ tiêu biểu
-- [ ] Test `PIIRedactor` che đúng số CCCD, kể cả dạng nói bằng chữ
-- [ ] Test `verify_grounding` bắt được giá trị bịa không có trong transcript (chống hallucination — bắt buộc, đây là rủi ro cao nhất)
-- [ ] **Test khẳng định không tồn tại endpoint xác nhận hàng loạt**
-- [ ] Test thủ công (không cần tự động hóa) luồng chính đầu-cuối: tạo phiên → ghi âm → trích xuất → xác nhận từng trường → đọc lại → kết thúc phiên
-- [ ] Test thủ công: mọi provider AI lỗi, phiên vẫn hoàn tất được bằng nhập tay (UC6)
+- [x] Test state machine: các chuyển đổi hợp lệ chính và bất hợp lệ tiêu biểu — **Hiện thực
+      (30/8/2026)**: đã có từ phần C1 —
+      [tests/domain/test_session_state.py](tests/domain/test_session_state.py), 10 test
+      (luồng đầy đủ, extraction_failed→AI_UNAVAILABLE, citizen_rejected, ask_again, cancel
+      hợp lệ/bất hợp lệ ở trạng thái cuối, cạnh không tồn tại, trạng thái cuối không có lối ra).
+- [x] Test `PIIRedactor` che đúng số CCCD, kể cả dạng nói bằng chữ — **Hiện thực (30/8/2026)**:
+      đã có từ phần G/redactor — [tests/llm/test_redactor.py](tests/llm/test_redactor.py), 6 test.
+- [x] Test `verify_grounding` bắt được giá trị bịa (chống hallucination) — **Hiện thực
+      (30/8/2026)**: đã có từ phần I2 — [tests/llm/test_grounding.py](tests/llm/test_grounding.py), 6 test.
+- [x] **Test khẳng định không tồn tại endpoint xác nhận hàng loạt** — **Hiện thực (30/8/2026)**:
+      viết lại thành [tests/api/test_no_bulk_confirm.py](tests/api/test_no_bulk_confirm.py) —
+      file gốc mà docstring của `fields.py` từng tham chiếu
+      (`tests/api/test_fields_router.py`) đã bị xóa khi thu hẹp phạm vi test ở phần J (theo
+      yêu cầu người dùng: giới hạn test tích hợp, một luồng E2E thay vì nhiều test nhỏ theo
+      từng router) — mục P liệt kê đây là một yêu cầu bắt buộc riêng nên viết lại độc lập,
+      gọn (thử 4 đường dẫn khả dĩ cho "xác nhận hàng loạt", khẳng định đều 404/405). Cập nhật
+      lại tham chiếu trong docstring của [fields.py](app/api/routers/fields.py).
+- [x] Test thủ công: luồng chính đầu-cuối — **Hiện thực (30/8/2026)**: kịch bản 1 trong
+      [tests/manual/README.md](tests/manual/README.md) — 11 bước qua giao diện thật (tạo
+      phiên → ghi âm qua micro thật/AudioWorklet → xác nhận từng trường → đọc lại → hoàn
+      tất), có bảng "bước / kết quả mong đợi" để người thực hiện đối chiếu.
+- [x] Test thủ công: mọi provider AI lỗi, vẫn hoàn tất bằng nhập tay (UC6) — **Hiện thực
+      (30/8/2026)**: kịch bản 2 trong [tests/manual/README.md](tests/manual/README.md) — hướng
+      dẫn giả lập lỗi cả 3 provider (LLM/STT/TTS) qua mock hoặc token sai, xác nhận banner
+      "Chế độ nhập tay" hiện đúng lúc và toàn bộ luồng vẫn hoàn tất được chỉ bằng nhập tay.
+
+> **Không tự động hóa 2 mục cuối theo đúng quyết định của Checklist gốc** — dựng bộ giả lập
+> trình duyệt/micro/audio đầu-cuối (Playwright + WebAudio giả lập...) không tương xứng với
+> giá trị mang lại ở quy mô MVP; ưu tiên kịch bản thủ công rõ ràng, dễ chạy lại trước mỗi lần
+> release.
 
 ---
 
