@@ -19,3 +19,6 @@ class AuditAction(StrEnum):
     FIELD_CONFIRMED = "field_confirmed"
     SESSION_COMPLETED = "session_completed"
     SESSION_CANCELLED = "session_cancelled"
+    # Thêm ở I4 (VoiceService) — Checklist yêu cầu tường minh ghi audit khi cán
+    # bộ chủ động gắn cờ transcript "chưa rõ" (UC5).
+    TRANSCRIPT_FLAGGED_BY_STAFF = "transcript_flagged_by_staff"

@@ -38,3 +38,8 @@ class VoiceTurnRepository:
         )
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
+
+    async def update(self, voice_turn: VoiceTurn) -> VoiceTurn:
+        """Đăng ký thay đổi trên một instance đã tracking, flush trong transaction hiện tại."""
+        await self._db.flush()
+        return voice_turn

@@ -413,12 +413,50 @@
 
 ### I4. VoiceService
 
-- [ ] `start_recording(session_id)` — **bấm nút hỏi**: tạo lượt thoại mới, cấp `turn_number`
-- [ ] `process_audio_chunk(session_id, chunk)` — đẩy tới STT, trả kết quả từng phần
-- [ ] `finalize_turn(session_id, transcript)` — lưu vào `voice_turns`
-- [ ] `delete_audio_buffer(session_id, turn_id)` — xóa khỏi Redis, ghi `audio_deleted_at`
-- [ ] `edit_transcript(session_id, turn_id, new_text, staff_name)` — cán bộ sửa (UC5)
-- [ ] `flag_transcript(session_id, turn_id, staff_name)` — cán bộ chủ động gắn cờ "chưa rõ", ghi audit `transcript_flagged_by_staff`
+- [x] `start_recording(session_id)` — **bấm nút hỏi**: tạo lượt thoại mới, cấp `turn_number`
+- [x] `process_audio_chunk(session_id, chunk)` — đẩy tới STT, trả kết quả từng phần
+- [x] `finalize_turn(session_id, transcript)` — lưu vào `voice_turns`
+- [x] `delete_audio_buffer(session_id, turn_id)` — xóa khỏi Redis, ghi `audio_deleted_at`
+- [x] `edit_transcript(session_id, turn_id, new_text, staff_name)` — cán bộ sửa (UC5)
+- [x] `flag_transcript(session_id, turn_id, staff_name)` — cán bộ chủ động gắn cờ "chưa rõ", ghi audit `transcript_flagged_by_staff`
+
+> **Hiện thực (30/8/2026):** `app/services/voice_service.py` — `VoiceService`
+> + `SessionNotFoundForVoice` + `VoiceTurnNotFound`. Vấn đề kỹ thuật đã hỏi
+> người dùng: `STTProvider.transcribe_stream()` (G1) nhận một
+> `AsyncIterator[bytes]` — một luồng hoàn chỉnh — trong khi
+> `process_audio_chunk()` theo Checklist phải nhận audio đẩy tới theo từng
+> chunk rời rạc qua nhiều lần gọi (khớp với cách tầng K/WebSocket sẽ dùng
+> thật). Hai giao diện không khớp trực tiếp; người dùng chọn phương án
+> **dùng `asyncio.Queue` làm cầu nối (Recommended)**: mỗi lượt đang ghi âm
+> có một `asyncio.Queue[bytes | None]` riêng + một task nền
+> (`_consume_stream`) đọc queue như `AsyncIterator[bytes]` để đưa vào
+> `transcribe_stream()`, gom `TranscriptChunk` (partial/final) vào
+> `_ActiveTurn.results`; tầng gọi đọc kết quả gom được qua
+> `get_partial_results(turn_id)` (không trả trực tiếp từ
+> `process_audio_chunk()` vì STT chạy độc lập trong task nền). `None` trong
+> queue là tín hiệu kết thúc luồng — `finalize_turn()` đẩy `None` rồi `await`
+> task nền trước khi dọn `_active_turns`.
+> `process_audio_chunk()` vừa đẩy chunk vào queue vừa `rpush` + `expire` vào
+> Redis (`audio_buffer:{turn_id}`, TTL `audio_buffer_ttl_seconds` mặc định
+> 120s — Mục 8.4/NT-6 của Plan.MD). `delete_audio_buffer()` xóa key Redis và
+> ghi `audio_deleted_at` làm bằng chứng tường minh, tách biệt với việc dựa
+> vào TTL tự hết hạn. `flag_transcript()` dùng
+> `AuditAction.TRANSCRIPT_FLAGGED_BY_STAFF` (đã bổ sung enum ở
+> `app/domain/audit_action.py`, cập nhật test
+> `tests/domain/test_audit_action.py` từ 7 lên 8 giá trị). Các action audit
+> khác (`recording_started`, `transcript_received`, `audio_buffer_deleted`,
+> `transcript_edited_by_staff`) dùng chuỗi trực tiếp theo đúng tên liệt kê ở
+> Mục 8.3 của Plan.MD (dòng 813) — không đưa vào `AuditAction` enum vì bản
+> rút gọn C2/E chỉ giữ action của luồng chính; có thể bổ sung sau nếu cần
+> kiểm tra tường minh bằng enum.
+> Thêm `VoiceTurnRepository.update()` (flush thay đổi trong transaction hiện
+> tại) — trước đó repository chỉ có `add`/`get`/`list_by_session`, chưa có
+> chỗ ghi thay đổi (`raw_transcript`, `edited_transcript`,
+> `flagged_by_staff`, `audio_deleted_at`) sau khi tạo.
+> Test: `tests/services/test_voice_service.py` (14 test) — dùng
+> `_EchoSTTProvider` (fake, trả partial theo từng chunk + 1 final khi luồng
+> kết thúc) và `AsyncMock` cho Redis client (cùng kỹ thuật đã dùng ở
+> `test_tts_cache_service.py`).
 
 ### I5. ReadbackService
 
