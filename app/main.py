@@ -1,10 +1,3 @@
-"""Trợ lý giọng nói AI — MVP siêu gọn.
-
-Một WebSocket proxy duy nhất: browser gửi audio thô (PCM 16-bit) lên đây,
-server chuyển tiếp vào Gemini Live API (giữ API key an toàn phía server),
-rồi chuyển audio Gemini trả lời ngược lại cho browser phát ra loa.
-"""
-
 import asyncio
 import base64
 import os
@@ -19,8 +12,16 @@ from google import genai
 from google.genai import types
 
 import build_index
+from app import dom_ai
+from app import submit_flow
 from app.conversation_log import ConversationLogger
+from app.extension_bridge import ExtensionCommandError, ExtensionNotConnected, extension_manager
 from app.rag import get_routing_index, reload_index
+
+TEXT_MODEL = "gemini-2.5-flash"
+
+SUBMIT_PROVINCE = "Thành phố Hà Nội"
+SUBMIT_WARD = "Yên Sở"
 
 load_dotenv()
 
@@ -30,52 +31,131 @@ MODEL = "gemini-2.5-flash-native-audio-latest"
 app = FastAPI()
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# RAG/tool-calling đã được thử (xem app/rag.py, build_index.py, còn giữ
-# nguyên cho trang quản lý data/manage.html) nhưng gây hồi quy chất lượng
-# trả lời với model audio-native: query tool để trống, Gemini bỏ qua tool ở
-# nhiều lượt, instruction dài làm model kém ổn định hơn (xem data/logs/ và
-# lịch sử trao đổi). Theo yêu cầu người dùng, quay lại xử lý nguyên thủy —
-# Gemini tự trả lời hoàn toàn tự nhiên, không tool, không ràng buộc RAG.
 LIVE_CONFIG = types.LiveConnectConfig(
     response_modalities=[types.Modality.AUDIO],
     system_instruction=(
         "Bạn là một trợ lý giọng nói thân thiện, trả lời bằng tiếng Việt, "
         "ngắn gọn, tự nhiên như đang trò chuyện trực tiếp."
     ),
-    # Bật transcript văn bản song song với audio — để hiển thị hội thoại
-    # dạng chat trên giao diện (người dùng nói gì, AI trả lời gì).
     input_audio_transcription=types.AudioTranscriptionConfig(),
     output_audio_transcription=types.AudioTranscriptionConfig(),
-    # Nới độ nhạy phát hiện giọng nói (VAD) — mặc định dễ bỏ sót giọng nhỏ,
-    # nói từ xa micro, hoặc người phát âm không rõ/ngọng vì coi đó là im
-    # lặng/tạp âm. LOW sensitivity ở đây nghĩa là "khó bị thuyết phục là im
-    # lặng" tức DỄ nhận là có người đang nói hơn — đánh đổi lại là dễ bắt
-    # nhầm tạp âm nền hơn một chút, chấp nhận được để ưu tiên không bỏ sót.
     realtime_input_config=types.RealtimeInputConfig(
         automatic_activity_detection=types.AutomaticActivityDetection(
             start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
             end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
-            # Giữ lại nhiều audio trước điểm bắt đầu được phát hiện, để
-            # không cắt mất âm tiết đầu (người nói chậm/ngọng thường vào
-            # câu chậm, dễ bị cắt mất từ đầu nếu padding quá ngắn).
             prefix_padding_ms=300,
-            # Chờ lâu hơn trước khi coi là hết lượt nói — người phát âm
-            # không rõ/ngọng thường nói chậm, ngắt quãng giữa câu nhiều hơn.
             silence_duration_ms=800,
         )
     ),
 )
 
 
+async def _extract_procedure_name(history: list[tuple[str, str]]) -> str | None:
+    if not history:
+        return None
+
+    transcript = "\n".join(f"{who}: {text}" for who, text in history)
+    prompt = (
+        "Đây là đoạn hội thoại giữa người dùng và trợ lý giọng nói về thủ "
+        "tục hành chính:\n\n"
+        f"{transcript}\n\n"
+        "Người dùng vừa yêu cầu nộp hồ sơ. Hãy trả về CHÍNH XÁC tên thủ tục "
+        "hành chính đang được nhắc tới (ví dụ: \"Đăng ký khai sinh\"), "
+        "không kèm giải thích, không kèm dấu ngoặc kép. Nếu không xác định "
+        "được thủ tục nào, trả về đúng chữ KHONG_RO."
+    )
+
+    response = await client.aio.models.generate_content(model=TEXT_MODEL, contents=prompt)
+    name = (response.text or "").strip()
+    if not name or name == "KHONG_RO":
+        return None
+    return name
+
+
+async def _handle_submit_procedure(
+    websocket: WebSocket, history: list[tuple[str, str]], log: ConversationLogger
+) -> None:
+    try:
+        procedure_name = await _extract_procedure_name(history)
+        log.submit_action("extract_procedure_name", {"procedure_name": procedure_name})
+        if not procedure_name:
+            await websocket.send_json(
+                {"type": "submit_procedure_error", "message": "Không xác định được thủ tục cần nộp."}
+            )
+            return
+
+        await websocket.send_json({"type": "submit_procedure_status", "message": f"Đang tìm kiếm: {procedure_name}..."})
+        search_url = submit_flow.build_search_url(procedure_name)
+        results_page = await extension_manager.send_command("open_url_and_scan", {"url": search_url})
+        log.submit_action("open_search_url", {"url": search_url})
+
+        await websocket.send_json({"type": "submit_procedure_status", "message": "Đang chọn đúng thủ tục..."})
+        pick = await dom_ai.pick_search_result(results_page["html"], procedure_name)
+        log.submit_action("pick_search_result", pick)
+        if not pick.get("result_selector"):
+            log.submit_action("pick_search_result_retry")
+            await asyncio.sleep(2.0)
+            results_page = await extension_manager.send_command("scan_current_page", {})
+            pick = await dom_ai.pick_search_result(results_page["html"], procedure_name)
+            log.submit_action("pick_search_result_retry_result", pick)
+        if not pick.get("result_selector"):
+            log.submit_error("pick_search_result", "result_selector rỗng — Gemini không chọn được kết quả nào.")
+            await websocket.send_json(
+                {"type": "submit_procedure_error", "message": "Không tìm thấy thủ tục trên dichvucong.gov.vn."}
+            )
+            return
+        await extension_manager.send_command("click_selector", {"selector": pick["result_selector"]})
+        log.submit_action("click_search_result_done", {"selector": pick["result_selector"]})
+
+        await websocket.send_json(
+            {"type": "submit_procedure_status", "message": "Đang điền tỉnh/phường..."}
+        )
+        await asyncio.sleep(1.5)
+        flow_result = await extension_manager.send_command(
+            "run_fixed_submit_flow", {"province": SUBMIT_PROVINCE, "ward": SUBMIT_WARD}
+        )
+        log.submit_action("run_fixed_submit_flow_done", flow_result)
+
+        await websocket.send_json(
+            {
+                "type": "submit_procedure_done",
+                "message": "Đã điền sẵn tỉnh/phường. Vui lòng tự bấm \"Nộp trực tuyến\" và đăng nhập để hoàn tất.",
+            }
+        )
+    except ExtensionNotConnected:
+        log.submit_error("extension_connection", "Chưa cài hoặc chưa kết nối tiện ích mở rộng trình duyệt.")
+        await websocket.send_json(
+            {
+                "type": "submit_procedure_error",
+                "message": "Chưa cài hoặc chưa kết nối tiện ích mở rộng trình duyệt.",
+            }
+        )
+    except TimeoutError:
+        log.submit_error("timeout", "Tiện ích mở rộng không phản hồi kịp thời (quá 20s).")
+        await websocket.send_json(
+            {"type": "submit_procedure_error", "message": "Tiện ích mở rộng không phản hồi kịp thời."}
+        )
+    except ExtensionCommandError as exc:
+        log.submit_error("extension_command", str(exc))
+        await websocket.send_json(
+            {"type": "submit_procedure_error", "message": f"Lỗi thao tác trên trang: {exc}"}
+        )
+    except Exception as exc:
+        log.submit_error("unexpected", repr(exc))
+        await websocket.send_json(
+            {"type": "submit_procedure_error", "message": f"Lỗi không xác định: {exc}"}
+        )
+
+
 @app.websocket("/ws")
 async def voice_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     log = ConversationLogger()
+    history: list[tuple[str, str]] = []
 
     async with client.aio.live.connect(model=MODEL, config=LIVE_CONFIG) as session:
 
         async def from_browser_to_gemini() -> None:
-            """Nhận audio micro (base64 PCM) từ browser, gửi vào Gemini."""
             while True:
                 message = await websocket.receive_json()
                 if message.get("type") == "audio":
@@ -83,26 +163,15 @@ async def voice_ws(websocket: WebSocket) -> None:
                     await session.send_realtime_input(
                         audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm;rate=16000")
                     )
+                elif message.get("type") == "submit_procedure":
+                    asyncio.create_task(_handle_submit_procedure(websocket, history, log))
                 elif message.get("type") == "stop":
                     return
 
         async def from_gemini_to_browser() -> None:
-            """Nhận audio trả lời từ Gemini, gửi ra browser để phát.
-
-            `session.receive()` chỉ trả stream của MỘT lượt phản hồi — hết lượt
-            (turn_complete) thì generator tự kết thúc. Phải gọi lại trong vòng
-            lặp `while True` để tiếp tục nhận các lượt kế tiếp; nếu không, hàm
-            này return sau câu đầu tiên, kéo theo `asyncio.gather` kết thúc và
-            đóng cả phiên Gemini — đúng lỗi khiến AI chỉ trả lời được 1 câu.
-            """
-            # Gom transcript theo lượt để ghi log 1 dòng duy nhất mỗi câu
-            # (của người dùng lẫn AI), thay vì một dòng cho mỗi mẩu nhỏ
-            # Gemini gửi dần. user_speaking_end (VAD) không dùng làm mốc
-            # flush được vì Gemini vẫn có thể gửi thêm mẩu transcript sau đó
-            # (giọng ngắt quãng, chưa hết câu thật) — mốc đáng tin duy nhất
-            # là turn_complete/interrupted, khi Gemini coi như đã nhận đủ.
             user_buffer = ""
             ai_buffer = ""
+            submit_hint_shown = False
             while True:
                 async for chunk in session.receive():
                     if chunk.voice_activity:
@@ -124,21 +193,29 @@ async def voice_ws(websocket: WebSocket) -> None:
                         text = content.output_transcription.text
                         ai_buffer += text
                         await websocket.send_json({"type": "ai_transcript", "text": text})
+                    if not submit_hint_shown and ("nộp" in user_buffer.lower() or "nộp" in ai_buffer.lower()):
+                        submit_hint_shown = True
+                        await websocket.send_json({"type": "show_submit_button"})
                     if content and content.interrupted:
                         await websocket.send_json({"type": "interrupted"})
                         if user_buffer:
                             log.user_transcript(user_buffer)
+                            history.append(("Người dùng", user_buffer))
                             user_buffer = ""
                         if ai_buffer:
                             log.ai_transcript(ai_buffer)
+                            history.append(("Trợ lý", ai_buffer))
                             ai_buffer = ""
                     if content and content.turn_complete:
                         await websocket.send_json({"type": "turn_complete"})
+                        submit_hint_shown = False
                         if user_buffer:
                             log.user_transcript(user_buffer)
+                            history.append(("Người dùng", user_buffer))
                             user_buffer = ""
                         if ai_buffer:
                             log.ai_transcript(ai_buffer)
+                            history.append(("Trợ lý", ai_buffer))
                             ai_buffer = ""
 
         try:
@@ -149,19 +226,27 @@ async def voice_ws(websocket: WebSocket) -> None:
             log.session_end()
 
 
+@app.websocket("/extension")
+async def extension_ws(websocket: WebSocket) -> None:
+    await websocket.accept()
+    await extension_manager.register(websocket)
+    try:
+        while True:
+            message = await websocket.receive_json()
+            await extension_manager.handle_response(message)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        extension_manager.unregister(websocket)
+
+
 @app.get("/procedures")
 async def list_procedures() -> list[dict]:
-    """Danh sách thủ tục đang có trong dữ liệu RAG — dùng cho trang quản
-    lý (manage.html) hiển thị, đọc thẳng từ index routing đã nạp sẵn trong
-    RAM (app/rag.py), không đọc lại đĩa."""
     return get_routing_index()
 
 
 @app.delete("/procedures/{slug}")
 async def delete_procedure(slug: str) -> dict:
-    """Xóa một thủ tục khỏi dữ liệu RAG: xóa PDF gốc, file sidecar URL (nếu
-    có) và file chi tiết data/procedures/<slug>.json, rồi build lại index
-    và nạp lại vào RAM — không cần restart server."""
     entry = next((e for e in get_routing_index() if e["slug"] == slug), None)
     if entry is None:
         return {"ok": False, "error": "Không tìm thấy thủ tục cần xóa."}
@@ -186,16 +271,6 @@ async def delete_procedure(slug: str) -> dict:
 async def upload_pdf(
     file: UploadFile = File(...), source_url: str = Form(default="")
 ) -> dict:
-    """Nhận PDF "Chi tiết thủ tục hành chính", lưu vào data/pdfs/, build lại
-    index RAG ngay (đọc/parse chỉ tốn thời gian một lần lúc upload, không
-    phải lúc server khởi động), rồi nạp lại vào RAM — không cần restart
-    server để dùng được dữ liệu mới.
-
-    `source_url` (tùy chọn): link trang thủ tục trên dichvucong.gov.vn
-    tương ứng với PDF này — ghi ra file sidecar '<tên_pdf>.url.txt' để
-    build_index.build() đọc lại và lưu vào cả routing (data/index.json)
-    lẫn chi tiết thủ tục, phục vụ tra cứu/hiển thị lại nguồn sau này.
-    """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"ok": False, "error": "Chỉ chấp nhận file .pdf"}
 

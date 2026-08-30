@@ -1,25 +1,3 @@
-"""Script build index RAG — chạy THỦ CÔNG khi có PDF mới, KHÔNG chạy lúc
-server khởi động (đọc/parse PDF là việc tốn thời gian, không cần lặp lại
-mỗi lần start nếu dữ liệu chưa đổi).
-
-Sinh ra 2 TẦNG dữ liệu, tách riêng theo mục đích:
-
-- data/index.json: file ROUTING nhẹ — mỗi thủ tục chỉ có tên, mã, file
-  nguồn và DANH SÁCH TÊN section (không có nội dung). Dùng để quyết định
-  "nên tra thủ tục nào" mà không phải tải nội dung đầy đủ.
-- data/procedures/<slug>.json: MỘT file riêng cho MỘT thủ tục, chứa đầy đủ
-  nội dung từng section. Chỉ đọc file này khi đã biết chính xác thủ tục
-  cần tra (từ bước routing ở trên).
-
-"THÀNH PHẦN HỒ SƠ" được parse thành dữ liệu có cấu trúc (danh sách "Trường
-hợp", mỗi trường hợp là danh sách giấy tờ kèm số lượng) thay vì giữ nguyên
-text thô mất định dạng bảng — pypdf làm phẳng bảng PDF thành các dòng tuần
-tự không có ranh giới cột, nhưng cột "Số lượng" luôn nhận một trong vài giá
-trị cố định (regex _QUANTITY_LINE) nên dùng nó làm mốc kết thúc mỗi hàng.
-
-Chạy: uv run python build_index.py
-"""
-
 import json
 import re
 import unicodedata
@@ -48,16 +26,12 @@ _HEADING_PATTERN = re.compile(
     re.MULTILINE,
 )
 
-# Mốc kết thúc một hàng trong bảng "THÀNH PHẦN HỒ SƠ" — cột "Số lượng" của
-# dữ liệu dichvucong.gov.vn chỉ nhận vài giá trị cố định này.
 _QUANTITY_LINE = re.compile(r"^(\d+\s+bản\s+(chính|sao)|Không\s+có)\s*$", re.IGNORECASE)
 _CASE_HEADER = re.compile(r"^Trường hợp\s+\d+\s*:\s*(.*)$")
 _TABLE_HEADER_LINE = "Tên giấy tờ Mẫu đơn, tờ khai Số lượng"
 
 
 def slugify(text: str) -> str:
-    # "đ"/"Đ" không có decomposition NFKD về "d" (khác các nguyên âm có
-    # dấu) — phải thay tay trước, nếu không ký tự này biến mất khỏi slug.
     text = text.replace("đ", "d").replace("Đ", "D")
     normalized = unicodedata.normalize("NFKD", text)
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
@@ -96,24 +70,6 @@ def split_into_sections(full_text: str) -> list[dict]:
 
 
 def parse_dossier_section(content: str) -> list[dict]:
-    """Parse "THÀNH PHẦN HỒ SƠ" thành list các 'Trường hợp', mỗi trường hợp
-    là list giấy tờ {ten_giay_to, so_luong}.
-
-    Chiến lược: quét từng dòng, gom các dòng liên tiếp làm "tên giấy tờ"
-    cho tới khi gặp một dòng khớp _QUANTITY_LINE — dòng đó là "số lượng"
-    kết thúc hàng hiện tại. Gặp dòng "Trường hợp N: ..." thì mở nhóm mới;
-    bỏ qua dòng lặp lại header bảng.
-
-    GIỚI HẠN ĐÃ BIẾT (chấp nhận cho MVP): khi cột "Mẫu đơn, tờ khai" của
-    một hàng để trống, pypdf trộn thứ tự text của bảng không nhất quán —
-    một số hàng liên tiếp có thể bị ghép lẫn tên giấy tờ với nhau. Ảnh
-    hưởng chủ yếu tới các "Trường hợp" chứa nhiều đoạn diễn giải dài (giấy
-    tờ xuất trình, lưu ý) — nhóm giấy tờ bắt buộc chính (thường ở "Trường
-    hợp 1") ít bị ảnh hưởng vì có ít hàng, câu ngắn hơn. Sửa triệt để cần
-    trích bảng theo tọa độ (ví dụ pdfplumber) thay vì text tuần tự — chưa
-    làm ở MVP này vì lợi ích không tương xứng effort cho một script chạy
-    thủ công, review được bằng mắt trước khi dùng.
-    """
     lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
     cases: list[dict] = []
     current_case: dict | None = None
@@ -146,10 +102,6 @@ def parse_dossier_section(content: str) -> list[dict]:
 
 
 def _read_source_url(pdf_path: Path) -> str | None:
-    """Đọc URL nguồn (nếu có) từ file sidecar '<tên_pdf>.url.txt' cạnh PDF —
-    ghi ra lúc upload (xem POST /upload-pdf) khi người dùng dán kèm link
-    dichvucong.gov.vn. Không bắt buộc: PDF chép tay/không có link vẫn
-    build bình thường, chỉ thiếu source_url."""
     url_path = pdf_path.with_suffix(pdf_path.suffix + ".url.txt")
     if url_path.exists():
         return url_path.read_text(encoding="utf-8").strip() or None

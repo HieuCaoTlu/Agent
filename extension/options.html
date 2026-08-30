@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Cấu hình — Trợ lý nộp hồ sơ</title>
+<style>
+  body { font-family: sans-serif; padding: 16px; max-width: 420px; }
+  label { display: block; margin-bottom: 4px; font-weight: 600; }
+  input { width: 100%; padding: 6px; margin-bottom: 12px; box-sizing: border-box; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .row input { margin-bottom: 0; }
+  button { padding: 8px 16px; cursor: pointer; }
+  button:disabled { cursor: default; opacity: 0.6; }
+  #status { margin-top: 8px; color: #2f7d32; }
+  .connbox { margin-top: 20px; padding: 12px; border-radius: 6px; border: 1px solid #ddd; }
+  .connbox h4 { margin: 0 0 8px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .dot.connected { background: #2f7d32; }
+  .dot.connecting { background: #d9a300; }
+  .dot.disconnected, .dot.error { background: #c62828; }
+  #connLabel { font-weight: 600; }
+  #connDetail { margin-top: 6px; font-size: 13px; color: #555; word-break: break-word; }
+  #testResult { margin-top: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h3>Địa chỉ backend</h3>
+  <label for="backendUrl">WebSocket URL (vd: ws://localhost:8013/extension)</label>
+  <div class="row">
+    <input type="text" id="backendUrl" placeholder="ws://localhost:8013/extension" />
+  </div>
+  <button id="saveBtn">Lưu</button>
+  <button id="testBtn">Kiểm tra kết nối</button>
+  <div id="status"></div>
+  <div id="testResult"></div>
+
+  <div class="connbox">
+    <h4>Trạng thái kết nối hiện tại</h4>
+    <div><span class="dot" id="connDot"></span><span id="connLabel">Đang kiểm tra...</span></div>
+    <div id="connDetail"></div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

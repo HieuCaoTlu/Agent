@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Trợ lý nộp hồ sơ</title>
+<style>
+  body { font-family: sans-serif; padding: 14px; width: 320px; }
+  h3 { margin: 0 0 10px; font-size: 15px; }
+  label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 12px; }
+  input { width: 100%; padding: 6px; margin-bottom: 10px; box-sizing: border-box; }
+  .row { display: flex; gap: 8px; margin-bottom: 10px; }
+  button { padding: 7px 12px; cursor: pointer; font-size: 13px; }
+  button:disabled { cursor: default; opacity: 0.6; }
+  #status { margin-top: 6px; color: #2f7d32; font-size: 12px; }
+  .connbox { margin-top: 16px; padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
+  .connbox h4 { margin: 0 0 8px; font-size: 13px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .dot.connected { background: #2f7d32; }
+  .dot.connecting { background: #d9a300; }
+  .dot.disconnected, .dot.error { background: #c62828; }
+  #connLabel { font-weight: 600; font-size: 13px; }
+  #connDetail { margin-top: 6px; font-size: 12px; color: #555; word-break: break-word; }
+  #testResult { margin-top: 8px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+  <h3>Trợ lý nộp hồ sơ — Dịch vụ công</h3>
+
+  <div class="connbox">
+    <h4>Trạng thái kết nối backend</h4>
+    <div><span class="dot" id="connDot"></span><span id="connLabel">Đang kiểm tra...</span></div>
+    <div id="connDetail"></div>
+  </div>
+
+  <label for="backendUrl" style="margin-top:12px;">WebSocket URL backend</label>
+  <div class="row">
+    <input type="text" id="backendUrl" placeholder="ws://localhost:8013/extension" />
+  </div>
+  <div class="actions">
+    <button id="saveBtn">Lưu</button>
+    <button id="testBtn">Kiểm tra kết nối</button>
+  </div>
+  <div id="status"></div>
+  <div id="testResult"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

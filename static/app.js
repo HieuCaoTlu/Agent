@@ -4,6 +4,7 @@ const wave = document.getElementById('wave');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
+const submitBtn = document.getElementById('submitBtn');
 const chatLog = document.getElementById('chatLog');
 
 let ws = null;
@@ -11,13 +12,11 @@ let audioContext = null;
 let micStream = null;
 let workletNode = null;
 
-// Bubble transcript đang stream dở (chưa turn_complete) — gom nhiều mẩu
-// text nhỏ Gemini gửi dần vào một bong bóng chat duy nhất mỗi lượt.
 let pendingUserBubble = null;
 let pendingAiBubble = null;
 
 function setWaveState(state) {
-  wave.className = 'wave ' + state; // idle | listening | speaking
+  wave.className = 'wave ' + state;
 }
 
 function appendTranscript(text, who) {
@@ -37,10 +36,6 @@ function finalizeTurn() {
   pendingAiBubble = null;
 }
 
-// Card trực quan cho danh sách giấy tờ (dossier_cases đã parse sẵn ở
-// build_index.py) — dữ liệu CÓ CẤU TRÚC THẬT từ RAG, không đoán/parse
-// ngược từ lời AI nói (transcript giọng nói không đáng tin cậy cho việc
-// này). Chèn như một phần tử riêng trong chat log, không phải bubble text.
 function renderProcedureCard(data) {
   const card = document.createElement('div');
   card.className = 'procedure-card';
@@ -89,7 +84,6 @@ function renderProcedureCard(data) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-// --- Phát audio trả lời của AI (PCM 24kHz mono từ Gemini Live API) ---
 let playbackContext = null;
 let nextPlayTime = 0;
 
@@ -122,7 +116,6 @@ function playPcmChunk(base64Pcm) {
   };
 }
 
-// --- Ghi âm micro, resample về 16kHz PCM, gửi qua WebSocket ---
 function resampleTo16k(input, inputRate) {
   if (inputRate === 16000) return input;
   const ratio = inputRate / 16000;
@@ -153,6 +146,7 @@ async function start() {
   idleCard.hidden = true;
   chatCard.hidden = false;
   chatLog.innerHTML = '';
+  submitBtn.hidden = true;
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
 
@@ -186,10 +180,18 @@ async function start() {
     } else if (msg.type === 'user_speaking_end') {
       statusEl.textContent = 'Đang suy nghĩ...';
       setWaveState('idle');
+    } else if (msg.type === 'show_submit_button') {
+      submitBtn.hidden = false;
+    } else if (msg.type === 'submit_procedure_status') {
+      statusEl.textContent = msg.message;
+    } else if (msg.type === 'submit_procedure_done') {
+      statusEl.textContent = msg.message || 'Đã mở thủ tục trên dichvucong.gov.vn — vui lòng kiểm tra và bấm "Nộp trực tuyến" nếu đúng.';
+    } else if (msg.type === 'submit_procedure_error') {
+      statusEl.textContent = 'Lỗi: ' + msg.message;
     } else if (msg.type === 'searching') {
       statusEl.textContent = 'Đang tra cứu thông tin thủ tục...';
     } else if (msg.type === 'procedure_card') {
-      finalizeTurn(); // card đứng riêng, không gộp chung bubble text trước/sau nó
+      finalizeTurn();
       renderProcedureCard(msg.data);
     } else if (msg.type === 'user_transcript') {
       appendTranscript(msg.text, 'user');
@@ -222,9 +224,6 @@ function resetUi() {
   if (workletNode) workletNode.disconnect();
   if (micStream) micStream.getTracks().forEach(t => t.stop());
   if (audioContext) audioContext.close();
-  // Đóng luôn ngữ cảnh phát audio trả lời của AI — nếu không, mọi audio đã
-  // enqueue qua source.start() (kể cả AI đang nói dở) vẫn tiếp tục phát ra
-  // loa sau khi bấm "Kết thúc hỗ trợ".
   if (playbackContext) {
     playbackContext.close();
     playbackContext = null;
@@ -237,5 +236,14 @@ function resetUi() {
   ws = null;
 }
 
+function submitProcedure() {
+  if (!ws) return;
+  submitBtn.disabled = true;
+  statusEl.textContent = 'Đang xử lý yêu cầu nộp hồ sơ...';
+  ws.send(JSON.stringify({ type: 'submit_procedure' }));
+  setTimeout(() => { submitBtn.disabled = false; }, 5000);
+}
+
 startBtn.onclick = start;
 stopBtn.onclick = stop;
+submitBtn.onclick = submitProcedure;

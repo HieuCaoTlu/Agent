@@ -1,6 +1,3 @@
-/* CSS riêng cho trang quản lý dữ liệu thủ tục (manage.html) — dùng chung
-   biến màu/font với styles.css (đã import trước file này). */
-
 main { align-items: flex-start; }
 
 .manage-card {
@@ -86,9 +83,6 @@ main { align-items: flex-start; }
 .procedure-item a { color: var(--color-primary); font-size: 12px; }
 
 .delete-btn {
-  /* styles.css đặt width: 100% cho mọi <button> — override tường minh,
-     nếu không nút này cố chiếm hết chiều rộng .procedure-item, đẩy
-     .procedure-info co về 0 khiến tên thủ tục vỡ dòng theo từng chữ. */
   width: auto;
   flex-shrink: 0;
   background: none;

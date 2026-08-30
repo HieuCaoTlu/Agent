@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Trợ lý nộp hồ sơ — Dịch vụ công",
+  "version": "0.1.0",
+  "description": "Tự động điền tìm kiếm, chọn thủ tục, tỉnh/phường trên dichvucong.gov.vn theo lệnh từ trợ lý giọng nói AI.",
+  "permissions": ["tabs", "scripting", "storage", "alarms"],
+  "host_permissions": ["https://dichvucong.gov.vn/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://dichvucong.gov.vn/*"],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Trợ lý nộp hồ sơ",
+    "default_popup": "popup.html"
+  }
+}

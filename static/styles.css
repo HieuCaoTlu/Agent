@@ -1,4 +1,3 @@
-/* Bảng màu/font lấy từ dichvucong.gov.vn thật (:root CSS variables của trang) */
 :root {
   --color-primary: #ce7a58;
   --color-secondary: #903938;
@@ -68,7 +67,6 @@ main {
 }
 
 
-/* --- Màn hình chờ --- */
 .card {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -89,8 +87,6 @@ main {
   color: var(--color-secondary);
 }
 
-/* Orb luôn "sống" — sóng bar nảy liên tục ngay cả khi chưa bắt đầu, không
-   bao giờ đứng yên hoàn toàn (yêu cầu: tránh cảm giác "khựng"). */
 .orb {
   width: 140px;
   height: 140px;
@@ -133,9 +129,10 @@ button {
 #startBtn:hover { background: var(--color-secondary); }
 #stopBtn { background: white; color: var(--color-secondary); border: 2px solid var(--color-secondary); }
 #stopBtn:hover { background: #fbeceb; }
+#submitBtn { background: var(--color-gold); color: var(--text-primary); margin: 12px; }
+#submitBtn:hover { background: #ffb020; }
+#submitBtn:disabled { opacity: 0.6; cursor: default; }
 
-/* Link điều hướng sang trang quản lý dữ liệu thủ tục (manage.html) — cùng
-   kích thước/hình dạng với #startBtn, chỉ khác màu (xám nhạt/chữ xám). */
 .link-btn {
   display: block;
   box-sizing: border-box;
@@ -154,12 +151,8 @@ button {
 }
 .link-btn:hover { background: #d9dde3; }
 
-/* [hidden] mặc định thua class selector cụ thể hơn (.card/.chat-card đặt
-   display: flex) — khai báo lại tường minh để thuộc tính hidden luôn thắng,
-   tránh cả hai màn hình hiện chồng lên nhau. */
 [hidden] { display: none !important; }
 
-/* --- Màn hình hội thoại (chatbox) --- */
 .chat-card {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -182,8 +175,6 @@ button {
   flex-shrink: 0;
 }
 
-/* Sóng âm ở đầu chatbox — luôn dao động, tốc độ/biên độ đổi theo trạng
-   thái qua các class .idle / .listening / .speaking (đặt bằng JS). */
 .wave {
   display: flex;
   align-items: center;
@@ -211,11 +202,8 @@ button {
   0%, 100% { height: 6px; }
   50% { height: 28px; }
 }
-/* Nghe người dùng nói: sóng màu phụ (đỏ nâu), biên độ lớn hơn. */
 .wave.listening span { background: var(--color-secondary); animation-duration: 0.5s; }
-/* AI đang nói: sóng màu vàng, nhịp riêng. */
 .wave.speaking span { background: var(--color-gold); animation-duration: 0.35s; }
-/* Rảnh/đang suy nghĩ: sóng nhỏ, chậm — vẫn luôn chuyển động, không đứng im. */
 .wave.idle span { animation-duration: 1.6s; opacity: 0.5; }
 
 #status {
@@ -254,9 +242,6 @@ button {
   border-bottom-left-radius: 4px;
 }
 
-/* Card trực quan cho danh sách giấy tờ/thủ tục (RAG có cấu trúc) — đứng
-   riêng trong chat log, không phải bubble text, chiếm gần hết chiều rộng
-   thay vì căn theo user/ai như bubble. */
 .procedure-card {
   align-self: stretch;
   background: white;

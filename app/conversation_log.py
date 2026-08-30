@@ -1,13 +1,3 @@
-"""Ghi log toàn bộ hoạt động của agent — mỗi phiên hội thoại (một kết nối
-WebSocket) ghi ra 1 file JSONL riêng trong data/logs/, để chẩn đoán các
-trường hợp AI trả lời sai/không dùng tool tra cứu mà không phải đoán mò.
-
-Mỗi dòng là một sự kiện độc lập (dễ đọc lại bằng mắt hoặc script), gồm:
-- session_start / session_end
-- user_transcript / ai_transcript (từng mẩu gộp theo lượt)
-- tool_call (tên hàm, tham số, kết quả trả về cho Gemini, có card hay không)
-"""
-
 import json
 import uuid
 from datetime import datetime
@@ -24,8 +14,6 @@ class ConversationLogger:
         self._write({"event": "session_start"})
 
     def _write(self, data: dict) -> None:
-        # Timestamp gọn "YY-MM-DD HH:MM" — đủ để tra theo mốc thời gian, khỏi
-        # cần độ chính xác tới giây/mili-giây như isoformat() mặc định.
         record = {
             "session_id": self.session_id,
             "ts": datetime.now().strftime("%y-%m-%d %H:%M"),
@@ -50,6 +38,12 @@ class ConversationLogger:
                 "has_card": has_card,
             }
         )
+
+    def submit_action(self, step: str, detail: dict | None = None) -> None:
+        self._write({"event": "submit_action", "step": step, **(detail or {})})
+
+    def submit_error(self, step: str, error: str) -> None:
+        self._write({"event": "submit_error", "step": step, "error": error})
 
     def session_end(self) -> None:
         self._write({"event": "session_end"})
