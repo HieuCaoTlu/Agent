@@ -1,0 +1,33 @@
+# Compose file cho Defang — deploy voice-ai-mvp (FastAPI + WebSocket).
+# Deploy: `defang compose up`
+# Secret (không để giá trị literal ở đây, set qua `defang config set <TÊN>`):
+#   defang config set GEMINI_API_KEY
+#   defang config set TEXT_MODEL_API_KEY   (chỉ cần nếu TEXT_MODEL_PROVIDER=openrouter)
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - target: 8000
+        published: 8000
+        mode: ingress
+    environment:
+      # Secret thật — giá trị lấy từ `defang config`, không literal.
+      - GEMINI_API_KEY
+      - TEXT_MODEL_API_KEY
+
+      # Cấu hình không nhạy cảm — literal thẳng, sửa tại đây khi cần đổi.
+      - TEXT_MODEL_PROVIDER=gemini
+      - GEMINI_MODEL=gemini-3.6-flash
+      - GEMINI_TEXT_MODEL=gemini-3.6-flash
+      - GEMINI_VOICE_MODEL=gemini-2.5-flash-native-audio-latest
+      - GEMINI_VOICE_NAME=Kore
+      - AUTO_GREET=false
+      - APP_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/extension/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

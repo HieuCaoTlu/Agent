@@ -3,6 +3,11 @@
 # sát dữ liệu thủ tục, không cần lúc chạy server thật).
 FROM python:3.12-slim AS base
 
+# curl cần cho HEALTHCHECK bên dưới — Defang yêu cầu compose.yaml phải khai
+# healthcheck nếu muốn expose ingress port.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Cài uv bằng cách copy binary tĩnh từ image chính chủ của Astral — nhanh và
 # không cần internet ngoài lúc build image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
