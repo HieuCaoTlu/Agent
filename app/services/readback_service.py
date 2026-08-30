@@ -10,6 +10,10 @@ Không tạo bản ghi `CitizenConfirmation` ở `generate_readback()` — bản
 "đang chờ"), nên bản ghi chỉ được tạo tại `record_citizen_confirmation()`, khi
 đã biết kết quả. `generate_readback()` chỉ tính `readback_round` kế tiếp (dựa
 trên số vòng đã ghi nhận trước đó) để hiển thị cho cán bộ, không lưu gì.
+
+Audio TTS sinh thành công được lưu vào Redis qua `TTSCacheService` (H2, key
+cố định theo `session_id` — `store_for_session()`), phục vụ
+`GET /sessions/{id}/readback/audio` (J6) tải lại mà không cần gọi lại TTS.
 """
 
 import uuid
@@ -24,6 +28,7 @@ from app.repositories.citizen_confirmation_repository import CitizenConfirmation
 from app.repositories.field_state_repository import FieldStateRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.catalog_service import CatalogService
+from app.services.tts_cache_service import TTSCacheService
 from app.tts.base import SynthesisResult, TTSProvider
 from app.tts.exceptions import TTSError
 from app.tts.readback import build_fallback_text, build_readback_text
@@ -72,6 +77,7 @@ class ReadbackService:
         audit_repository: AuditRepository,
         catalog_service: CatalogService,
         tts_provider: TTSProvider,
+        tts_cache_service: TTSCacheService,
     ) -> None:
         self._sessions = session_repository
         self._field_states = field_state_repository
@@ -79,6 +85,7 @@ class ReadbackService:
         self._audit = audit_repository
         self._catalog = catalog_service
         self._tts = tts_provider
+        self._tts_cache = tts_cache_service
 
     async def generate_readback(self, session_id: uuid.UUID) -> ReadbackOutcome:
         """Dựng nội dung đọc lại từ giá trị đã xác nhận, gọi TTS sinh audio.
@@ -131,6 +138,8 @@ class ReadbackService:
                 audio_format=None,
                 used_fallback=True,
             )
+
+        await self._tts_cache.store_for_session(session_id, synthesis.audio_bytes)
 
         return ReadbackOutcome(
             readback_round=readback_round,

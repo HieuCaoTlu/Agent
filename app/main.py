@@ -14,8 +14,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.deps import get_llm_provider, get_stt_provider, get_tts_provider
+from app.api.routers import extraction, fields, procedures, readback, sessions, turns
 from app.config import get_settings
-from app.domain.exceptions import InvalidTransitionError, ProcedureNotFound
+from app.db.database import dispose_engine, get_engine
+from app.db.redis_client import dispose_pool, get_redis
+from app.domain.exceptions import DomainError, InvalidTransitionError, ProcedureNotFound
+from app.services.extraction_service import ExtractionLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
@@ -51,18 +56,21 @@ def _error_response(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Kết nối/ngắt DB, Redis, nạp catalog khi khởi động/tắt ứng dụng."""
+    """Kết nối/ngắt DB, Redis, nạp catalog khi khởi động/tắt ứng dụng.
+
+    Engine DB, pool Redis và catalog đều tạo lười (lazy, `lru_cache`/biến
+    module) ở lần dùng đầu tiên (`app.db.database`, `app.db.redis_client`,
+    `app.api.deps.get_catalog_service`) — lifespan chỉ chịu trách nhiệm dọn
+    dẹp lúc tắt ứng dụng, không cần chủ động "khởi tạo" ở đây.
+    """
     settings = get_settings()
     logger.info("app_starting", app_env=settings.app_env)
-
-    # TODO(B1): khởi tạo async engine + sessionmaker (app.db.database)
-    # TODO(B1): khởi tạo Redis connection pool (app.db.redis_client)
-    # TODO(D2): nạp CatalogService, cache toàn bộ file JSON catalog vào bộ nhớ
 
     yield
 
     logger.info("app_stopping")
-    # TODO(B1): đóng engine DB, đóng Redis pool
+    await dispose_engine()
+    await dispose_pool()
 
 
 def create_app() -> FastAPI:
@@ -119,6 +127,44 @@ def create_app() -> FastAPI:
             request_id=request_id,
         )
 
+    @app.exception_handler(ExtractionLimitExceeded)
+    async def handle_extraction_limit_exceeded(
+        request: Request, exc: ExtractionLimitExceeded
+    ) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", _new_request_id())
+        logger.warning(
+            "extraction_limit_exceeded", request_id=request_id, session_id=str(exc.session_id)
+        )
+        return _error_response(
+            status_code=429,
+            code="EXTRACTION_LIMIT_EXCEEDED",
+            message=str(exc),
+            request_id=request_id,
+            fallback_available=True,
+        )
+
+    @app.exception_handler(DomainError)
+    async def handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
+        """Fallback chung cho mọi `DomainError` không có handler riêng ở trên.
+
+        Mỗi service (I1-I5) tự định nghĩa exception "not found" riêng (tránh
+        phụ thuộc ngược giữa các service) — ở tầng HTTP chúng đều có cùng ý
+        nghĩa 404. Exception nào không phải "not found" (ví dụ
+        `NoProcedureSelected`) coi là 409 — trạng thái phiên chưa đủ điều
+        kiện thực hiện thao tác, không phải lỗi đầu vào của client.
+        """
+        request_id = getattr(request.state, "request_id", _new_request_id())
+        is_not_found = "NotFound" in type(exc).__name__
+        logger.warning(
+            "domain_error", request_id=request_id, error_type=type(exc).__name__, error=str(exc)
+        )
+        return _error_response(
+            status_code=404 if is_not_found else 409,
+            code=type(exc).__name__,
+            message=str(exc),
+            request_id=request_id,
+        )
+
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", _new_request_id())
@@ -133,22 +179,49 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check() -> dict:
-        """Kiểm tra DB, Redis, các provider AI.
+        """Kiểm tra DB, Redis, các provider AI (L1 — suy giảm mềm dựa trên kết quả này)."""
+        database_status = "unknown"
+        try:
+            engine = get_engine()
+            async with engine.connect() as conn:
+                await conn.run_sync(lambda _: None)
+            database_status = "ok"
+        except Exception:
+            database_status = "unreachable"
 
-        TODO: thay các giá trị "unknown" bằng health_check() thật của từng
-        thành phần khi B1 (DB/Redis) và F/G/H (LLM/STT/TTS provider) hoàn thành.
-        """
+        redis_status = "unknown"
+        try:
+            async for client in get_redis():
+                await client.ping()
+                redis_status = "ok"
+        except Exception:
+            redis_status = "unreachable"
+
+        llm_ok = await get_llm_provider().health_check()
+        stt_ok = await get_stt_provider().health_check()
+        tts_ok = await get_tts_provider().health_check()
+
         return {
             "status": "ok",
             "app_env": settings.app_env,
             "checks": {
-                "database": "unknown",
-                "redis": "unknown",
+                "database": database_status,
+                "redis": redis_status,
                 "llm_provider": settings.llm_provider,
+                "llm_provider_ok": llm_ok,
                 "stt_provider": settings.stt_provider,
+                "stt_provider_ok": stt_ok,
                 "tts_provider": settings.tts_provider,
+                "tts_provider_ok": tts_ok,
             },
         }
+
+    app.include_router(procedures.router)
+    app.include_router(sessions.router)
+    app.include_router(turns.router)
+    app.include_router(extraction.router)
+    app.include_router(fields.router)
+    app.include_router(readback.router)
 
     return app
 

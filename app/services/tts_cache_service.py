@@ -11,6 +11,7 @@ import uuid
 import redis.asyncio as redis
 
 _KEY_PREFIX = "tts_audio:"
+_SESSION_KEY_PREFIX = "tts_audio_session:"
 _DEFAULT_TTL_SECONDS = 300
 
 
@@ -28,3 +29,18 @@ class TTSCacheService:
     async def retrieve(self, key: str) -> bytes | None:
         """Lấy lại audio theo key — `None` nếu không tồn tại hoặc đã hết TTL."""
         return await self._redis.get(key)
+
+    async def store_for_session(self, session_id: uuid.UUID, audio_bytes: bytes) -> str:
+        """Lưu audio đọc lại mới nhất của một phiên — key cố định (ghi đè lần đọc trước).
+
+        Dùng cho `GET /sessions/{id}/readback/audio` (J6): endpoint không mang
+        theo key ngẫu nhiên trong URL, nên phải tra theo `session_id` thay vì
+        UUID ngẫu nhiên như `store()`.
+        """
+        key = f"{_SESSION_KEY_PREFIX}{session_id}"
+        await self._redis.set(key, audio_bytes, ex=self._ttl_seconds)
+        return key
+
+    async def retrieve_for_session(self, session_id: uuid.UUID) -> bytes | None:
+        """Lấy audio đọc lại mới nhất của phiên — `None` nếu chưa đọc lại hoặc đã hết TTL."""
+        return await self._redis.get(f"{_SESSION_KEY_PREFIX}{session_id}")

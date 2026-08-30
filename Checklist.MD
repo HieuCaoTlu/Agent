@@ -506,49 +506,103 @@
 
 ### J1. Danh mục thủ tục
 
-- [ ] `GET /api/v1/procedures` — danh sách thủ tục đang hiệu lực
-- [ ] `GET /api/v1/procedures/{code}` — chi tiết gồm field schema và thành phần hồ sơ
+- [x] `GET /api/v1/procedures` — danh sách thủ tục đang hiệu lực
+- [x] `GET /api/v1/procedures/{code}` — chi tiết gồm field schema và thành phần hồ sơ
 
 ### J2. Quản lý phiên
 
-- [ ] `POST /api/v1/sessions` — **tạo phiên mới**
-- [ ] `GET /api/v1/sessions/{id}` — trạng thái đầy đủ
-- [ ] `GET /api/v1/sessions` — danh sách phiên gần đây, có phân trang
-- [ ] `POST /api/v1/sessions/{id}/consent` — ghi nhận đồng ý của người dân
-- [ ] `POST /api/v1/sessions/{id}/procedure` — chọn thủ tục
-- [ ] `POST /api/v1/sessions/{id}/cancel` — hủy phiên
-- [ ] `POST /api/v1/sessions/{id}/complete` — **kết thúc phiên** với mã hồ sơ
+- [x] `POST /api/v1/sessions` — **tạo phiên mới**
+- [x] `GET /api/v1/sessions/{id}` — trạng thái đầy đủ
+- [x] `GET /api/v1/sessions` — danh sách phiên gần đây, có phân trang
+- [x] `POST /api/v1/sessions/{id}/consent` — ghi nhận đồng ý của người dân
+- [x] `POST /api/v1/sessions/{id}/procedure` — chọn thủ tục
+- [x] `POST /api/v1/sessions/{id}/cancel` — hủy phiên
+- [x] `POST /api/v1/sessions/{id}/complete` — **kết thúc phiên** với mã hồ sơ
 
 ### J3. Lượt thoại
 
-- [ ] `GET /api/v1/sessions/{id}/turns` — danh sách lượt thoại
-- [ ] `PATCH /api/v1/sessions/{id}/turns/{turn_id}` — cán bộ sửa transcript
+- [x] `GET /api/v1/sessions/{id}/turns` — danh sách lượt thoại
+- [x] `PATCH /api/v1/sessions/{id}/turns/{turn_id}` — cán bộ sửa transcript
 
 ### J4. Trích xuất
 
-- [ ] `POST /api/v1/sessions/{id}/extract` — gọi LLM trích xuất
-- [ ] `GET /api/v1/sessions/{id}/extractions` — lịch sử các lần trích xuất
+- [x] `POST /api/v1/sessions/{id}/extract` — gọi LLM trích xuất
+- [x] `GET /api/v1/sessions/{id}/extractions` — lịch sử các lần trích xuất
 
 ### J5. Trường dữ liệu
 
-- [ ] `GET /api/v1/sessions/{id}/fields` — trạng thái mọi trường
-- [ ] `POST /api/v1/sessions/{id}/fields/{name}/confirm` — xác nhận một trường
-- [ ] `POST /api/v1/sessions/{id}/fields/{name}/unconfirm` — bỏ xác nhận
-- [ ] `POST /api/v1/sessions/{id}/fields/{name}/amend` — sửa một trường bằng giọng nói
-- [ ] Khẳng định trong test: **không tồn tại** endpoint xác nhận hàng loạt
+- [x] `GET /api/v1/sessions/{id}/fields` — trạng thái mọi trường
+- [x] `POST /api/v1/sessions/{id}/fields/{name}/confirm` — xác nhận một trường
+- [x] `POST /api/v1/sessions/{id}/fields/{name}/unconfirm` — bỏ xác nhận
+- [x] `POST /api/v1/sessions/{id}/fields/{name}/amend` — sửa một trường bằng giọng nói
+- [x] Khẳng định trong test: **không tồn tại** endpoint xác nhận hàng loạt
 
 ### J6. Đọc lại và xác nhận
 
-- [ ] `POST /api/v1/sessions/{id}/readback` — sinh nội dung và audio
-- [ ] `GET /api/v1/sessions/{id}/readback/audio` — tải audio TTS
-- [ ] `POST /api/v1/sessions/{id}/citizen-confirm` — ghi nhận xác nhận của người dân
+- [x] `POST /api/v1/sessions/{id}/readback` — sinh nội dung và audio
+- [x] `GET /api/v1/sessions/{id}/readback/audio` — tải audio TTS
+- [x] `POST /api/v1/sessions/{id}/citizen-confirm` — ghi nhận xác nhận của người dân
 
 ### J7. Chuẩn chung cho mọi endpoint
 
-- [ ] Khai báo response model bằng Pydantic cho mọi endpoint
-- [ ] Khai báo mã lỗi có thể trả về trong OpenAPI
-- [ ] Hỗ trợ header `Idempotency-Key` cho `confirm`, `complete`, `citizen-confirm`
-- [ ] Ghi audit cho mọi thao tác thay đổi dữ liệu
+- [x] Khai báo response model bằng Pydantic cho mọi endpoint
+- [ ] Khai báo mã lỗi có thể trả về trong OpenAPI — **chưa làm**, xem ghi chú dưới
+- [ ] Hỗ trợ header `Idempotency-Key` cho `confirm`, `complete`, `citizen-confirm` — **lược bỏ theo quyết định người dùng**, xem ghi chú
+- [x] Ghi audit cho mọi thao tác thay đổi dữ liệu (đã có sẵn ở tầng service I1-I5, router chỉ gọi qua)
+
+> **Hiện thực (30/8/2026):** Toàn bộ 22 endpoint J1-J6 — `app/api/deps.py`
+> (dependency injection tập trung: mỗi `get_*_service` dựng service từ
+> `Depends(get_db)` + catalog/provider AI cache qua `lru_cache`, để test có
+> thể `app.dependency_overrides[...]`), `app/api/schemas.py` (Pydantic
+> response/request model riêng — không serialize thẳng ORM object),
+> `app/api/routers/{procedures,sessions,turns,extraction,fields,readback}.py`,
+> wire vào `app/main.py` (lifespan dọn dẹp engine/pool lúc tắt, `/health`
+> gọi `health_check()` thật của DB/Redis/LLM/STT/TTS, exception handler
+> `ExtractionLimitExceeded` → 429 và `DomainError` chung → 404 nếu tên lớp
+> chứa "NotFound" còn lại → 409).
+> Mỗi router `flush()` qua service rồi tự `db.commit()` — service (I1-I5)
+> chỉ `flush()`, không tự commit; một request HTTP = một transaction trọn vẹn.
+> Thêm `pyproject.toml`: `ignore = ["B008"]` cho ruff — `Depends(...)` làm giá
+> trị mặc định tham số là idiom chuẩn FastAPI, không phải lỗi.
+> Bổ sung `TTSCacheService.store_for_session()`/`retrieve_for_session()` (H2)
+> — key Redis cố định theo `session_id` (không phải UUID ngẫu nhiên như
+> `store()`) để `GET /readback/audio` tải lại đúng audio vừa sinh;
+> `ReadbackService` (I5) cập nhật nhận thêm `tts_cache_service`, lưu audio
+> ngay sau khi TTS thành công.
+> **J7 lược bỏ theo quyết định người dùng:** cơ chế `Idempotency-Key` chưa
+> hiện thực ở MVP này — mỗi endpoint `confirm`/`complete`/`citizen-confirm`
+> chỉ ghi TODO tham chiếu mục này trong docstring, tập trung nguồn lực cho
+> phần còn lại của J trước. Khai báo mã lỗi trong OpenAPI (`responses=` của
+> từng route) cũng chưa làm — có thể bổ sung sau, không chặn phần K trở đi.
+>
+> **Khoảng trống thiết kế đã phát hiện (chưa sửa theo quyết định người
+> dùng — "cách ít tốn kém nhất"):** bảng chuyển trạng thái (C1) có các cạnh
+> `start_listening` (CREATED→LISTENING),
+> `request_extraction`/`extraction_success`/`extraction_failed`
+> (PROCEDURE_SELECTED→EXTRACTING→SUGGESTED/AI_UNAVAILABLE), `open_review`
+> (SUGGESTED→REVIEWING), `manual_entry` (AI_UNAVAILABLE→REVIEWING),
+> `ask_again` (REVIEWING→LISTENING) mà **không service hay endpoint nào**
+> (I1-I5, J1-J6) hiện gọi tới — `ExtractionService.extract()` không đụng
+> `session.state` dù trích xuất thành công/thất bại, và J2 không có endpoint
+> tương ứng cho `start_listening`/`open_review`/`manual_entry`/`ask_again`.
+> Nghĩa là luồng CREATED → COMPLETED không thể đi hết bằng cách chỉ gọi API
+> — cần set thẳng `session.state` qua DB ở các bước đó (đã làm trong test
+> E2E, xem `tests/api/test_e2e_flow.py`). Đây là việc còn thiếu thật sự,
+> để dành sửa sau (có thể ở một mục riêng khi rà lại toàn bộ luồng, không
+> thuộc phạm vi J) — không tự sửa ở đây vì sẽ phải động vào
+> `ExtractionService` (I2, đã hoàn thiện + test kỹ) chỉ để phục vụ một
+> thay đổi ngoài yêu cầu ban đầu của J.
+>
+> Test: `tests/api/conftest.py` (fixture `client` — `httpx.AsyncClient` +
+> `ASGITransport` gọi thẳng app, override `get_db`/`get_redis`/
+> `get_catalog_service`; Redis giả lập bằng `dict` trong bộ nhớ để
+> `set`/`get`/`delete` hoạt động thật giữa nhiều lệnh gọi trong cùng test).
+> **Phạm vi test có chủ đích hẹp** (quyết định người dùng: không lặp lại
+> từng nhánh nghiệp vụ đã test kỹ ở I1-I5) — `tests/api/test_e2e_flow.py`
+> chỉ 2 test: một luồng tích hợp duy nhất đi hết J1→J6 theo đúng thứ tự
+> B1-B7 của Plan.MD (xác nhận các router nối đúng với nhau qua HTTP, đúng
+> response_model, đúng mã lỗi domain → HTTP 404/409), và một smoke test
+> riêng cho `GET /fields` (kết quả validate hiển thị đúng).
 
 ---
 

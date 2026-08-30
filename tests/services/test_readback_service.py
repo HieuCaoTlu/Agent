@@ -3,6 +3,7 @@
 import uuid
 from datetime import date
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,6 +18,7 @@ from app.services.readback_service import (
     ReadbackService,
     SessionNotFoundForReadback,
 )
+from app.services.tts_cache_service import TTSCacheService
 from app.tts.base import SynthesisResult, TTSProvider
 from app.tts.exceptions import TTSAPIError
 
@@ -50,7 +52,9 @@ class _StubTTSProvider(TTSProvider):
         return True
 
 
-def _make_service(db_session, tts_provider: TTSProvider) -> ReadbackService:
+def _make_service(
+    db_session, tts_provider: TTSProvider, tts_cache_service: TTSCacheService | None = None
+) -> ReadbackService:
     return ReadbackService(
         session_repository=SessionRepository(db_session),
         field_state_repository=FieldStateRepository(db_session),
@@ -58,6 +62,7 @@ def _make_service(db_session, tts_provider: TTSProvider) -> ReadbackService:
         audit_repository=AuditRepository(db_session),
         catalog_service=CatalogService(_CATALOG_DIR),
         tts_provider=tts_provider,
+        tts_cache_service=tts_cache_service or TTSCacheService(AsyncMock()),
     )
 
 
@@ -101,6 +106,21 @@ async def test_generate_readback_success_returns_audio_and_advances_state(db_ses
 
     logs = await AuditRepository(db_session).list_by_session(session.id)
     assert any(log.action == "readback_played" for log in logs)
+
+
+async def test_generate_readback_success_caches_audio_by_session(db_session) -> None:
+    session = await _make_session_with_confirmed_fields(db_session)
+    tts = _StubTTSProvider()
+    redis_client = AsyncMock()
+    cache = TTSCacheService(redis_client, ttl_seconds=60)
+    service = _make_service(db_session, tts, tts_cache_service=cache)
+
+    await service.generate_readback(session.id)
+    await db_session.commit()
+
+    redis_client.set.assert_awaited_once_with(
+        f"tts_audio_session:{session.id}", b"audio-bytes", ex=60
+    )
 
 
 async def test_generate_readback_masks_national_id_and_formats_date(db_session) -> None:
