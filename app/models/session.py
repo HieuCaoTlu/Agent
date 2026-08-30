@@ -4,7 +4,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, new_uuid
@@ -68,8 +78,13 @@ class Session(Base, TimestampMixin):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # duration_ms: cột tính toán phía Postgres (GENERATED ALWAYS AS ... STORED) — xem migration B3.
+    # `server_default=FetchedValue()` báo cho SQLAlchemy đây là giá trị do server sinh ra —
+    # KHÔNG gửi giá trị (kể cả NULL) trong câu INSERT/UPDATE (Postgres từ chối insert vào
+    # generated column dù là NULL), và tự đọc lại giá trị thật qua RETURNING sau khi ghi.
     # Không khai báo công thức ở đây để tránh trùng logic giữa ORM và DB; đọc lại qua refresh().
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(
+        Integer, server_default=FetchedValue(), nullable=True
+    )
 
     # Quan hệ tự tham chiếu (UC3): một phiên cha có thể có nhiều phiên con kế thừa dữ liệu
     parent: Mapped["Session | None"] = relationship(
