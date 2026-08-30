@@ -979,10 +979,37 @@
 
 ## Q. Đóng gói và chạy
 
-- [ ] Viết `docker-compose.yml` cho local: PostgreSQL, Redis, backend, frontend
-- [ ] Viết `Dockerfile` cho backend
-- [ ] Viết `README.md` hướng dẫn chạy local: cài đặt, biến môi trường, migration, seed catalog
-- [ ] Script `scripts/run_dev.sh` hoặc lệnh `make dev` khởi động backend + frontend cùng lúc
+- [x] Viết `docker-compose.yml` cho local: PostgreSQL, Redis, backend, frontend — **Hiện
+      thực (30/8/2026)**: mở rộng [docker-compose.yml](docker-compose.yml) đã có sẵn
+      postgres/redis (từ trước phần Q) thêm service `backend` (build từ
+      [Dockerfile](Dockerfile) gốc dự án, override `DATABASE_URL`/`REDIS_URL` trỏ tên
+      service thay vì `localhost`) và `frontend` (build từ
+      [frontend/Dockerfile](frontend/Dockerfile), expose `:5173`→`:80`). Xác nhận cú pháp
+      hợp lệ bằng `docker compose config` (in ra plan đầy đủ, đúng biến môi trường) — **không
+      build/chạy được image thực sự trong môi trường này** vì Docker daemon không sẵn sàng
+      (`docker build` báo lỗi kết nối `dockerDesktopLinuxEngine`), không phải lỗi cấu hình.
+      Cần build-test thủ công trên máy có Docker Desktop đang chạy trước khi tin cậy hoàn toàn.
+- [x] Viết `Dockerfile` cho backend — **Hiện thực (30/8/2026)**: [Dockerfile](Dockerfile) —
+      `python:3.12-slim`, cài qua `uv sync --frozen` (khớp chính xác `uv.lock` đã dùng suốt
+      dự án thay vì pip trực tiếp), tách layer cache (copy `pyproject.toml`/`uv.lock` trước
+      code), entrypoint chạy `alembic upgrade head` rồi `uvicorn` (đơn giản, phù hợp MVP một
+      instance — ghi chú rõ trong Dockerfile rằng môi trường nhiều instance cần tách migration
+      ra job riêng). Cũng thêm [.dockerignore](.dockerignore) và
+      [frontend/Dockerfile](frontend/Dockerfile) (build tĩnh + nginx, kèm
+      [frontend/nginx.conf](frontend/nginx.conf) proxy `/api` sang backend, SPA fallback) —
+      không nằm trong yêu cầu gốc của mục này (chỉ nêu backend) nhưng cần thiết để
+      docker-compose ở mục trên chạy được toàn bộ ứng dụng bằng một lệnh.
+- [x] Viết `README.md` hướng dẫn chạy local — **Hiện thực (30/8/2026)**:
+      [README.md](README.md) viết lại hoàn chỉnh — 2 cách chạy (Docker Compose toàn bộ, hoặc
+      chỉ DB/Redis qua Docker + backend/frontend trực tiếp), bảng biến môi trường theo nhóm,
+      lệnh kiểm thử, lệnh migration, cấu trúc thư mục. Xác nhận không cần bước "seed catalog"
+      riêng — danh mục thủ tục là file JSON tĩnh đọc trực tiếp từ đĩa
+      ([app/static_data/procedures/](app/static_data/procedures/)), không nạp vào DB.
+- [x] Script khởi động backend + frontend cùng lúc — **Hiện thực (30/8/2026)**:
+      [scripts/run_dev.sh](scripts/run_dev.sh) (bash — môi trường phát triển ở đây có Git
+      Bash; `make` không sẵn có trên Windows nên chọn nhánh `.sh` mà Checklist cho phép thay
+      thế). Chạy migration, khởi động `uvicorn --reload` + `npm run dev` song song, dọn cả
+      hai tiến trình khi Ctrl+C (`trap cleanup EXIT INT TERM`).
 
 ---
 
