@@ -687,16 +687,65 @@
 
 ### L1. Suy giảm mềm (bắt buộc — đây là nguyên tắc lõi NT-8)
 
-- [ ] LLM lỗi → chuyển phiên sang `AI_UNAVAILABLE`, cho phép nhập tay
-- [ ] STT lỗi → cho phép cán bộ gõ transcript trực tiếp
-- [ ] TTS lỗi → trả văn bản để hiển thị
-- [ ] Redis lỗi → chuyển sang lưu trạng thái phiên trong PostgreSQL
+- [x] LLM lỗi → chuyển phiên sang `AI_UNAVAILABLE`, cho phép nhập tay — **Hiện thực (30/8/2026)**:
+      phát hiện khoảng trống đã ghi nhận từ phần J (không service nào từng gọi
+      `transition()` với `REQUEST_EXTRACTION`/`EXTRACTION_SUCCESS`/`EXTRACTION_FAILED`
+      — session không bao giờ thực sự vào `EXTRACTING`). Vì đây là yêu cầu bắt buộc
+      (không thể lược bỏ như đã làm tạm thời ở J), đã sửa `ExtractionService.extract()`
+      để tự điều khiển state machine đúng chuẩn C1: gọi `REQUEST_EXTRACTION` (→
+      `EXTRACTING`) trước khi gọi LLM, rồi `EXTRACTION_SUCCESS` (→ `SUGGESTED`) hoặc
+      `EXTRACTION_FAILED` (→ `AI_UNAVAILABLE`, chỉ khi `status == "api_error"` —
+      **không** áp dụng cho `parse_failed`, quyết định của người dùng vì JSON sai định
+      dạng không phải lỗi hạ tầng AI) sau đó. Thêm helper `_advance_state()` khoan dung
+      có chủ đích: nếu `event` không hợp lệ từ trạng thái hiện tại (ví dụ trích xuất lại
+      khi phiên đã ở `SUGGESTED`/`REVIEWING` — luồng "trích xuất lại" chưa được mô hình
+      hóa trong bảng chuyển đổi C1), bỏ qua và giữ nguyên state thay vì ném lỗi làm hỏng
+      luồng nghiệp vụ hợp lệ khác. `amend_field()` (UC4 — sửa một trường) **không** đổi
+      state cả phiên (tham số `advance_state=False` khi gọi `_run_llm_and_save()`) — sửa
+      một trường không nên lùi cả phiên về `AI_UNAVAILABLE`/`SUGGESTED`. 5 test mới trong
+      `tests/services/test_extraction_service.py` (api_error → `AI_UNAVAILABLE`, success →
+      `SUGGESTED`, parse_failed → giữ nguyên, amend_field lỗi → giữ nguyên, luồng thật từ
+      `PROCEDURE_SELECTED`).
+- [x] STT lỗi → cho phép cán bộ gõ transcript trực tiếp — **Hiện thực (30/8/2026)**: đã
+      thỏa mãn từ phần J/K, không cần code mới. `PATCH /sessions/{id}/turns/{turn_id}`
+      ([turns.py](app/api/routers/turns.py)) gọi `VoiceService.edit_transcript()` không
+      điều kiện tiên quyết nào — cán bộ luôn có thể ghi đè `raw_transcript` bằng tay. Khi
+      STT lỗi giữa chừng lúc ghi âm qua WebSocket, handler `audio` bắt `STTError` và gửi
+      message `{"type": "error", "code": "STT_UNAVAILABLE"}` **không đóng kết nối** — cán
+      bộ bấm `stop` (transcript rỗng/thiếu vẫn được lưu) rồi sửa tay qua `PATCH` như trên.
+- [x] TTS lỗi → trả văn bản để hiển thị — **Hiện thực (30/8/2026)**: đã thỏa mãn từ phần
+      I5, không cần code mới. `ReadbackService.generate_readback()`
+      ([readback_service.py](app/services/readback_service.py)) bắt `TTSError`, đặt
+      `used_fallback=True`, và trả `build_fallback_text()` (văn bản đọc lại ghép từ
+      template + giá trị đã xác nhận) thay vì audio — cán bộ hiển thị text này lên màn
+      hình cho người dân đọc thay vì nghe.
+- [x] Redis lỗi → chuyển sang lưu trạng thái phiên trong PostgreSQL — **Hiện thực
+      (30/8/2026)**: đã thỏa mãn sẵn theo thiết kế hiện tại, khác Plan.MD Mục 13.1 (dự
+      tính Redis là nơi lưu trạng thái phiên chính, PostgreSQL chỉ là fallback) — kiến
+      trúc thực tế (từ phần C/I1) đặt `Session.state` trực tiếp trong PostgreSQL **ngay
+      từ đầu**, không có tầng cache Redis nào phía trước. Redis chỉ dùng cho hai loại dữ
+      liệu vốn đã tạm thời/không phải nguồn sự thật: audio buffer khi ghi âm (TTL 120s,
+      [voice_service.py](app/services/voice_service.py)) và cache audio TTS
+      ([tts_cache_service.py](app/services/tts_cache_service.py)) — Redis lỗi ở hai chỗ
+      này không làm mất trạng thái nghiệp vụ, chỉ mất dữ liệu tạm (audio chưa transcript
+      xong, hoặc cache TTS phải sinh lại). Quyết định của người dùng: không cần thêm
+      try/except quanh các lệnh gọi Redis trong `voice_service`/`tts_cache_service` cho
+      MVP — khác Plan.MD nhưng an toàn hơn (không có single point of failure nào phụ
+      thuộc Redis cho state).
 
 ### L2. Giới hạn cơ bản
 
-- [ ] Giới hạn số lần extraction mỗi phiên (`max_extractions_per_session`)
-- [ ] Giới hạn kích thước audio chunk
-- [ ] Trả HTTP 429 kèm thông báo tiếng Việt rõ ràng khi vượt giới hạn
+- [x] Giới hạn số lần extraction mỗi phiên (`max_extractions_per_session`) — **Hiện thực
+      (30/8/2026)**: đã có từ phần I2 — `ExtractionService` đếm `count_by_session()` so
+      với `max_extractions_per_session` (mặc định 5), ném `ExtractionLimitExceeded`.
+- [x] Giới hạn kích thước audio chunk — **Hiện thực (30/8/2026)**: đã có từ phần K —
+      `_MAX_CHUNK_BYTES = 256 * 1024` (256 KiB) trong
+      [voice.py](app/api/routers/voice.py), kiểm tra sau khi giải mã base64.
+- [x] Trả HTTP 429 kèm thông báo tiếng Việt rõ ràng khi vượt giới hạn — **Hiện thực
+      (30/8/2026)**: đã có từ phần J — handler `handle_extraction_limit_exceeded` trong
+      [main.py](app/main.py) trả 429 với `code=EXTRACTION_LIMIT_EXCEEDED`,
+      `fallback_available=True`, và thông báo tiếng Việt từ
+      `ExtractionLimitExceeded.__init__()`.
 
 > **Lược bỏ khỏi MVP:** circuit breaker nhiều trạng thái (CLOSED/OPEN/HALF_OPEN) dùng Redis chia sẻ giữa worker, giới hạn tần suất theo cán bộ/giờ — thêm khi hệ thống có nhiều người dùng đồng thời thật sự cần bảo vệ.
 

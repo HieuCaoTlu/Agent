@@ -208,6 +208,72 @@ async def test_extract_llm_error_saves_failed_extraction(db_session) -> None:
     assert any(log.action == "extraction_failed" for log in logs)
 
 
+async def test_extract_llm_error_transitions_session_to_ai_unavailable(db_session) -> None:
+    """L1 (bắt buộc, NT-8): LLM lỗi → chuyển phiên sang AI_UNAVAILABLE."""
+    session = await _make_session_with_procedure(db_session)
+    await _add_turn(db_session, session.id, "Xin chào", 1)
+
+    provider = _ScriptedLLMProvider([LLMConnectionError("mất mạng")])
+    service = _make_service(db_session, provider)
+
+    await service.extract(session.id, include_turns=[1])
+    await db_session.commit()
+
+    refreshed = await SessionRepository(db_session).get(session.id)
+    assert refreshed.state == "AI_UNAVAILABLE"
+
+
+async def test_extract_success_transitions_session_to_suggested(db_session) -> None:
+    session = await _make_session_with_procedure(db_session)
+    await _add_turn(db_session, session.id, "Xin chào", 1)
+
+    provider = _ScriptedLLMProvider([{"fields": [], "observations": []}])
+    service = _make_service(db_session, provider)
+
+    await service.extract(session.id, include_turns=[1])
+    await db_session.commit()
+
+    refreshed = await SessionRepository(db_session).get(session.id)
+    assert refreshed.state == "SUGGESTED"
+
+
+async def test_extract_parse_failed_does_not_change_session_state(db_session) -> None:
+    """Chỉ api_error mới chuyển AI_UNAVAILABLE — parse_failed không phải lỗi
+    hạ tầng AI (quyết định của người dùng)."""
+    session = await _make_session_with_procedure(db_session)
+    await _add_turn(db_session, session.id, "Xin chào", 1)
+
+    class _BadJSONProvider(LLMProvider):
+        async def extract(self, system_prompt: str, user_message: str) -> LLMResponse:
+            return LLMResponse(
+                raw_text="khong-phai-json", input_tokens=1, output_tokens=1, latency_ms=1, model="m"
+            )
+
+        async def health_check(self) -> bool:
+            return True
+
+    service = _make_service(db_session, _BadJSONProvider())
+    await service.extract(session.id, include_turns=[1])
+    await db_session.commit()
+
+    refreshed = await SessionRepository(db_session).get(session.id)
+    assert refreshed.state == "EXTRACTING"  # giữ nguyên — không lùi, không tiến
+
+
+async def test_amend_field_llm_error_does_not_change_session_state(db_session) -> None:
+    """UC4 (sửa một trường) không được lùi trạng thái cả phiên dù LLM lỗi."""
+    session = await _make_session_with_procedure(db_session)
+
+    provider = _ScriptedLLMProvider([LLMConnectionError("mất mạng")])
+    service = _make_service(db_session, provider)
+
+    await service.amend_field(session.id, "ngay_sinh", transcript_turns=["abc"])
+    await db_session.commit()
+
+    refreshed = await SessionRepository(db_session).get(session.id)
+    assert refreshed.state == "EXTRACTING"
+
+
 async def test_extract_malformed_json_saves_parse_failed(db_session) -> None:
     session = await _make_session_with_procedure(db_session)
     await _add_turn(db_session, session.id, "Xin chào", 1)
@@ -349,3 +415,22 @@ async def test_amend_field_unknown_field_raises(db_session) -> None:
 
     with pytest.raises(DomainError):
         await service.amend_field(session.id, "khong_ton_tai", transcript_turns=["abc"])
+
+
+async def test_extract_from_procedure_selected_advances_through_extracting(db_session) -> None:
+    """Luồng thật (không giả lập trực tiếp EXTRACTING như fixture chuẩn):
+    PROCEDURE_SELECTED --REQUEST_EXTRACTION--> EXTRACTING --EXTRACTION_SUCCESS--> SUGGESTED."""
+    session = await _make_session_with_procedure(db_session)
+    session.state = "PROCEDURE_SELECTED"
+    await SessionRepository(db_session).update(session)
+    await db_session.commit()
+    await _add_turn(db_session, session.id, "Xin chào", 1)
+
+    provider = _ScriptedLLMProvider([{"fields": [], "observations": []}])
+    service = _make_service(db_session, provider)
+
+    await service.extract(session.id, include_turns=[1])
+    await db_session.commit()
+
+    refreshed = await SessionRepository(db_session).get(session.id)
+    assert refreshed.state == "SUGGESTED"

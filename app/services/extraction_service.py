@@ -17,7 +17,7 @@ from datetime import date
 
 from app.catalog.models import FieldSpec
 from app.domain.audit_action import AuditAction
-from app.domain.exceptions import DomainError
+from app.domain.exceptions import DomainError, InvalidTransitionError
 from app.domain.extraction_schema import (
     ExtractedField,
     ExtractionParseError,
@@ -25,6 +25,7 @@ from app.domain.extraction_schema import (
     parse_extraction_result,
 )
 from app.domain.merge import MergeResult, merge_field
+from app.domain.session_state import SessionEvent, SessionState, transition
 from app.domain.validators import validate_all
 from app.domain.warnings import Warning as DomainWarning
 from app.domain.warnings import generate_warnings
@@ -38,6 +39,7 @@ from app.llm.prompt import (
 )
 from app.llm.redactor import PIIRedactor
 from app.models.extraction import Extraction, FieldState
+from app.models.session import Session
 from app.models.voice import VoiceTurn
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.extraction_repository import ExtractionRepository
@@ -68,6 +70,22 @@ class ExtractionLimitExceeded(DomainError):
             f"Phiên '{session_id}' đã đạt giới hạn {limit} lần trích xuất. "
             "Hãy chuyển sang nhập tay phần còn lại."
         )
+
+
+def _advance_state(session: Session, event: SessionEvent) -> None:
+    """Cố gắng chuyển `session.state` theo `event` qua `transition()` (C1, L1).
+
+    Khoan dung có chủ đích: nếu `event` không hợp lệ từ trạng thái hiện tại
+    (ví dụ trích xuất lại khi phiên đã ở SUGGESTED/REVIEWING — luồng chưa
+    được mô hình hóa trong bảng chuyển đổi C1), bỏ qua và giữ nguyên state,
+    KHÔNG ném lỗi làm hỏng luồng nghiệp vụ hợp lệ khác. Chỉ áp dụng khi
+    `event` thực sự khớp một cạnh trong bảng.
+    """
+    try:
+        next_state = transition(SessionState(session.state), event)
+    except InvalidTransitionError:
+        return
+    session.state = next_state.value
 
 
 @dataclass(frozen=True)
@@ -156,8 +174,14 @@ class ExtractionService:
             only_missing_fields=only_missing,
         )
 
+        # L1: vào EXTRACTING trước khi gọi LLM — chỉ có hiệu lực từ
+        # PROCEDURE_SELECTED (lần trích xuất đầu); các lần gọi lại từ trạng
+        # thái khác (SUGGESTED/REVIEWING...) giữ nguyên state (xem _advance_state).
+        _advance_state(session, SessionEvent.REQUEST_EXTRACTION)
+        await self._sessions.update(session)
+
         extraction = await self._run_llm_and_save(
-            session_id=session_id,
+            session=session,
             fields=fields,
             transcript=transcript,
             user_message=user_message,
@@ -192,12 +216,13 @@ class ExtractionService:
         user_message = build_single_field_correction_message(field, transcript_turns)
 
         extraction = await self._run_llm_and_save(
-            session_id=session_id,
+            session=session,
             fields=[field],
             transcript=transcript,
             user_message=user_message,
             current_field_states=current_field_states,
             attempt_number=already_done + 1,
+            advance_state=False,
         )
 
         warnings = await self._recompute_warnings(session_id, session.procedure_code)
@@ -205,12 +230,13 @@ class ExtractionService:
 
     async def _run_llm_and_save(
         self,
-        session_id: uuid.UUID,
+        session: Session,
         fields: list[FieldSpec],
         transcript: str,
         user_message: str,
         current_field_states: list[FieldState],
         attempt_number: int,
+        advance_state: bool = True,
     ) -> Extraction:
         # Bước 3: che dữ liệu nhạy cảm. Redactor sống trong phạm vi một lần
         # gọi (không giữ giữa các request) — bảng ánh xạ CCCD chỉ cần tồn tại
@@ -219,11 +245,20 @@ class ExtractionService:
         redacted_message = redactor.redact(user_message)
         prompt_hash = hashlib.sha256(redacted_message.encode("utf-8")).hexdigest()
 
+        session_id = session.id
         start = time.monotonic()
         try:
             # Bước 4: gọi LLM provider.
             response = await self._llm.extract(SYSTEM_PROMPT_V1, redacted_message)
         except LLMError as exc:
+            # L1 (bắt buộc, NT-8): LLM lỗi mạng/API → chuyển phiên sang
+            # AI_UNAVAILABLE, cho phép cán bộ nhập tay. Không áp dụng cho
+            # parse_failed (JSON sai định dạng không phải lỗi hạ tầng AI —
+            # quyết định của người dùng) và không áp dụng khi advance_state=False
+            # (amend_field, UC4 — sửa một trường không lùi trạng thái cả phiên).
+            if advance_state:
+                _advance_state(session, SessionEvent.EXTRACTION_FAILED)
+                await self._sessions.update(session)
             return await self._save_failed_extraction(
                 session_id=session_id,
                 attempt_number=attempt_number,
@@ -304,6 +339,10 @@ class ExtractionService:
                 session_id=session_id,
                 detail={"field_name": event.field_name},
             )
+
+        if advance_state:
+            _advance_state(session, SessionEvent.EXTRACTION_SUCCESS)
+            await self._sessions.update(session)
 
         return extraction
 
