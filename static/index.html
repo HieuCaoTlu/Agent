@@ -150,7 +150,21 @@ async function start() {
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
-    if (msg.type === 'audio') playPcmChunk(msg.data);
+    if (msg.type === 'audio') {
+      playPcmChunk(msg.data);
+    } else if (msg.type === 'user_speaking_start') {
+      statusEl.textContent = 'Đang nghe bạn nói...';
+      avatar.classList.add('listening');
+    } else if (msg.type === 'user_speaking_end') {
+      statusEl.textContent = 'Đang suy nghĩ...';
+      avatar.classList.remove('listening');
+    } else if (msg.type === 'turn_complete') {
+      statusEl.textContent = 'Đang lắng nghe...';
+    } else if (msg.type === 'interrupted') {
+      statusEl.textContent = 'Đang lắng nghe...';
+      avatar.classList.remove('speaking');
+      nextPlayTime = playbackContext ? playbackContext.currentTime : 0;
+    }
   };
 
   ws.onclose = () => resetUi();

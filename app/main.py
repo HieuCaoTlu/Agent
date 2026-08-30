@@ -18,7 +18,7 @@ from google.genai import types
 load_dotenv()
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-MODEL = "gemini-2.0-flash-live-001"
+MODEL = "gemini-2.5-flash-native-audio-latest"
 
 app = FastAPI()
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -51,14 +51,30 @@ async def voice_ws(websocket: WebSocket) -> None:
                     return
 
         async def from_gemini_to_browser() -> None:
-            """Nhận audio trả lời từ Gemini, gửi ra browser để phát."""
-            async for chunk in session.receive():
-                if chunk.data:
-                    await websocket.send_json(
-                        {"type": "audio", "data": base64.b64encode(chunk.data).decode()}
-                    )
-                if chunk.server_content and chunk.server_content.turn_complete:
-                    await websocket.send_json({"type": "turn_complete"})
+            """Nhận audio trả lời từ Gemini, gửi ra browser để phát.
+
+            `session.receive()` chỉ trả stream của MỘT lượt phản hồi — hết lượt
+            (turn_complete) thì generator tự kết thúc. Phải gọi lại trong vòng
+            lặp `while True` để tiếp tục nhận các lượt kế tiếp; nếu không, hàm
+            này return sau câu đầu tiên, kéo theo `asyncio.gather` kết thúc và
+            đóng cả phiên Gemini — đúng lỗi khiến AI chỉ trả lời được 1 câu.
+            """
+            while True:
+                async for chunk in session.receive():
+                    if chunk.voice_activity:
+                        activity = chunk.voice_activity.voice_activity_type
+                        if activity == types.VoiceActivityType.ACTIVITY_START:
+                            await websocket.send_json({"type": "user_speaking_start"})
+                        elif activity == types.VoiceActivityType.ACTIVITY_END:
+                            await websocket.send_json({"type": "user_speaking_end"})
+                    if chunk.data:
+                        await websocket.send_json(
+                            {"type": "audio", "data": base64.b64encode(chunk.data).decode()}
+                        )
+                    if chunk.server_content and chunk.server_content.interrupted:
+                        await websocket.send_json({"type": "interrupted"})
+                    if chunk.server_content and chunk.server_content.turn_complete:
+                        await websocket.send_json({"type": "turn_complete"})
 
         try:
             await asyncio.gather(from_browser_to_gemini(), from_gemini_to_browser())
