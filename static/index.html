@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Trợ lý giọng nói AI</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    background: #0f172a;
+    font-family: system-ui, sans-serif;
+    color: white;
+  }
+  .avatar {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #60a5fa, #1e3a8a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 64px;
+    transition: box-shadow 0.2s ease;
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.5);
+  }
+  .avatar.listening { box-shadow: 0 0 0 20px rgba(96, 165, 250, 0.2); }
+  .avatar.speaking { box-shadow: 0 0 0 20px rgba(74, 222, 128, 0.3); animation: pulse 1s infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 15px rgba(74, 222, 128, 0.25); }
+    50% { box-shadow: 0 0 0 30px rgba(74, 222, 128, 0.1); }
+  }
+  #status { font-size: 18px; opacity: 0.8; }
+  button {
+    font-size: 20px;
+    padding: 16px 32px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  #startBtn { background: #22c55e; color: white; }
+  #stopBtn { background: #ef4444; color: white; }
+</style>
+</head>
+<body>
+  <div class="avatar" id="avatar">🤖</div>
+  <div id="status">Sẵn sàng</div>
+  <button id="startBtn">🎙 Bắt đầu hỗ trợ</button>
+  <button id="stopBtn" style="display:none">⏹ Kết thúc hỗ trợ</button>
+
+<script>
+const avatar = document.getElementById('avatar');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+let ws = null;
+let audioContext = null;
+let micStream = null;
+let workletNode = null;
+
+// --- Phát audio trả lời của AI (PCM 24kHz mono từ Gemini Live API) ---
+let playbackContext = null;
+let nextPlayTime = 0;
+
+function playPcmChunk(base64Pcm) {
+  if (!playbackContext) {
+    playbackContext = new AudioContext({ sampleRate: 24000 });
+    nextPlayTime = playbackContext.currentTime;
+  }
+  const bytes = Uint8Array.from(atob(base64Pcm), c => c.charCodeAt(0));
+  const int16 = new Int16Array(bytes.buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+  const buffer = playbackContext.createBuffer(1, float32.length, 24000);
+  buffer.copyToChannel(float32, 0);
+
+  const source = playbackContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(playbackContext.destination);
+
+  const startAt = Math.max(nextPlayTime, playbackContext.currentTime);
+  source.start(startAt);
+  nextPlayTime = startAt + buffer.duration;
+
+  avatar.classList.add('speaking');
+  source.onended = () => {
+    if (playbackContext.currentTime >= nextPlayTime - 0.05) {
+      avatar.classList.remove('speaking');
+    }
+  };
+}
+
+// --- Ghi âm micro, resample về 16kHz PCM, gửi qua WebSocket ---
+function resampleTo16k(input, inputRate) {
+  if (inputRate === 16000) return input;
+  const ratio = inputRate / 16000;
+  const outLength = Math.floor(input.length / ratio);
+  const output = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) output[i] = input[Math.floor(i * ratio)];
+  return output;
+}
+
+function floatTo16BitPcm(input) {
+  const buffer = new ArrayBuffer(input.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < input.length; i++) {
+    const s = Math.max(-1, Math.min(1, input[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
+function toBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+async function start() {
+  statusEl.textContent = 'Đang kết nối...';
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = async () => {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new AudioContext();
+    await audioContext.audioWorklet.addModule('/worklet.js');
+
+    const source = audioContext.createMediaStreamSource(micStream);
+    workletNode = new AudioWorkletNode(audioContext, 'mic-processor');
+    workletNode.port.onmessage = (e) => {
+      const resampled = resampleTo16k(e.data, audioContext.sampleRate);
+      const pcm = floatTo16BitPcm(resampled);
+      ws.send(JSON.stringify({ type: 'audio', data: toBase64(pcm) }));
+    };
+    source.connect(workletNode);
+
+    statusEl.textContent = 'Đang lắng nghe...';
+    avatar.classList.add('listening');
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'inline-block';
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'audio') playPcmChunk(msg.data);
+  };
+
+  ws.onclose = () => resetUi();
+}
+
+function stop() {
+  if (ws) {
+    ws.send(JSON.stringify({ type: 'stop' }));
+    ws.close();
+  }
+  resetUi();
+}
+
+function resetUi() {
+  if (workletNode) workletNode.disconnect();
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (audioContext) audioContext.close();
+  avatar.classList.remove('listening', 'speaking');
+  statusEl.textContent = 'Sẵn sàng';
+  startBtn.style.display = 'inline-block';
+  stopBtn.style.display = 'none';
+  ws = null;
+}
+
+startBtn.onclick = start;
+stopBtn.onclick = stop;
+</script>
+</body>
+</html>

@@ -1,34 +1,6 @@
-# --- Môi trường / secrets ---
 .env
-.env.*
-!.env.example
-
-# --- Python ---
 .venv/
-venv/
 __pycache__/
 *.pyc
-*.pyo
-*.egg-info/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-uv.lock.bak
-
-# --- Node / frontend ---
-node_modules/
-dist/
-frontend/dist/
-frontend/.vite/
-
-# --- IDE / OS ---
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# --- Logs / dữ liệu tạm ---
-*.log
-*.sqlite3
-*.db
-/tmp/
+.uv/
+uv.lock

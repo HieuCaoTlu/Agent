@@ -1,230 +1,69 @@
-"""Điểm khởi động ứng dụng FastAPI.
+"""Trợ lý giọng nói AI — MVP siêu gọn.
 
-Ghi chú MVP: không có middleware xác thực/JWT ở phiên bản này (xem
-Checklist.MD mục "Đã lược bỏ khỏi MVP") — toàn bộ endpoint dùng trực tiếp
-trong mạng nội bộ điểm hỗ trợ.
+Một WebSocket proxy duy nhất: browser gửi audio thô (PCM 16-bit) lên đây,
+server chuyển tiếp vào Gemini Live API (giữ API key an toàn phía server),
+rồi chuyển audio Gemini trả lời ngược lại cho browser phát ra loa.
 """
 
-import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import asyncio
+import base64
+import os
 
-import structlog
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from google import genai
+from google.genai import types
 
-from app.api.deps import get_llm_provider, get_stt_provider, get_tts_provider
-from app.api.routers import extraction, fields, procedures, readback, sessions, turns, voice
-from app.config import get_settings
-from app.db.database import dispose_engine, get_engine
-from app.db.redis_client import dispose_pool, get_redis
-from app.domain.exceptions import DomainError, InvalidTransitionError, ProcedureNotFound
-from app.services.extraction_service import ExtractionLimitExceeded
+load_dotenv()
 
-logger = structlog.get_logger(__name__)
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+MODEL = "gemini-2.0-flash-live-001"
 
-REQUEST_ID_HEADER = "X-Request-ID"
+app = FastAPI()
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-
-def _new_request_id() -> str:
-    return f"req_{uuid.uuid4().hex}"
-
-
-def _error_response(
-    status_code: int,
-    code: str,
-    message: str,
-    request_id: str,
-    detail: str | None = None,
-    fallback_available: bool = False,
-) -> JSONResponse:
-    """Dựng response lỗi theo định dạng thống nhất — Mục 9.1 của Plan."""
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "error": {
-                "code": code,
-                "message": message,
-                "detail": detail,
-                "request_id": request_id,
-                "fallback_available": fallback_available,
-            }
-        },
-    )
+LIVE_CONFIG = types.LiveConnectConfig(
+    response_modalities=[types.Modality.AUDIO],
+    system_instruction=(
+        "Bạn là một trợ lý giọng nói thân thiện, trả lời bằng tiếng Việt, "
+        "ngắn gọn, tự nhiên như đang trò chuyện trực tiếp."
+    ),
+)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Kết nối/ngắt DB, Redis, nạp catalog khi khởi động/tắt ứng dụng.
+@app.websocket("/ws")
+async def voice_ws(websocket: WebSocket) -> None:
+    await websocket.accept()
 
-    Engine DB, pool Redis và catalog đều tạo lười (lazy, `lru_cache`/biến
-    module) ở lần dùng đầu tiên (`app.db.database`, `app.db.redis_client`,
-    `app.api.deps.get_catalog_service`) — lifespan chỉ chịu trách nhiệm dọn
-    dẹp lúc tắt ứng dụng, không cần chủ động "khởi tạo" ở đây.
-    """
-    settings = get_settings()
-    logger.info("app_starting", app_env=settings.app_env)
+    async with client.aio.live.connect(model=MODEL, config=LIVE_CONFIG) as session:
 
-    yield
+        async def from_browser_to_gemini() -> None:
+            """Nhận audio micro (base64 PCM) từ browser, gửi vào Gemini."""
+            while True:
+                message = await websocket.receive_json()
+                if message.get("type") == "audio":
+                    pcm_bytes = base64.b64decode(message["data"])
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm;rate=16000")
+                    )
+                elif message.get("type") == "stop":
+                    return
 
-    logger.info("app_stopping")
-    await dispose_engine()
-    await dispose_pool()
+        async def from_gemini_to_browser() -> None:
+            """Nhận audio trả lời từ Gemini, gửi ra browser để phát."""
+            async for chunk in session.receive():
+                if chunk.data:
+                    await websocket.send_json(
+                        {"type": "audio", "data": base64.b64encode(chunk.data).decode()}
+                    )
+                if chunk.server_content and chunk.server_content.turn_complete:
+                    await websocket.send_json({"type": "turn_complete"})
 
-
-def create_app() -> FastAPI:
-    settings = get_settings()
-
-    app = FastAPI(
-        title="Trợ lý giọng nói AI hỗ trợ TTHC trực tuyến",
-        version="0.1.0",
-        lifespan=lifespan,
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.frontend_origin],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @app.middleware("http")
-    async def request_id_middleware(request: Request, call_next):
-        request_id = request.headers.get(REQUEST_ID_HEADER) or _new_request_id()
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers[REQUEST_ID_HEADER] = request_id
-        return response
-
-    @app.exception_handler(InvalidTransitionError)
-    async def handle_invalid_transition(
-        request: Request, exc: InvalidTransitionError
-    ) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", _new_request_id())
-        logger.warning(
-            "invalid_transition",
-            request_id=request_id,
-            current_state=exc.current_state,
-            transition_event=exc.event,
-        )
-        return _error_response(
-            status_code=409,
-            code="INVALID_TRANSITION",
-            message=exc.message,
-            request_id=request_id,
-        )
-
-    @app.exception_handler(ProcedureNotFound)
-    async def handle_procedure_not_found(request: Request, exc: ProcedureNotFound) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", _new_request_id())
-        logger.warning("procedure_not_found", request_id=request_id, code=exc.code)
-        return _error_response(
-            status_code=404,
-            code="PROCEDURE_NOT_FOUND",
-            message=exc.message,
-            request_id=request_id,
-        )
-
-    @app.exception_handler(ExtractionLimitExceeded)
-    async def handle_extraction_limit_exceeded(
-        request: Request, exc: ExtractionLimitExceeded
-    ) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", _new_request_id())
-        logger.warning(
-            "extraction_limit_exceeded", request_id=request_id, session_id=str(exc.session_id)
-        )
-        return _error_response(
-            status_code=429,
-            code="EXTRACTION_LIMIT_EXCEEDED",
-            message=str(exc),
-            request_id=request_id,
-            fallback_available=True,
-        )
-
-    @app.exception_handler(DomainError)
-    async def handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        """Fallback chung cho mọi `DomainError` không có handler riêng ở trên.
-
-        Mỗi service (I1-I5) tự định nghĩa exception "not found" riêng (tránh
-        phụ thuộc ngược giữa các service) — ở tầng HTTP chúng đều có cùng ý
-        nghĩa 404. Exception nào không phải "not found" (ví dụ
-        `NoProcedureSelected`) coi là 409 — trạng thái phiên chưa đủ điều
-        kiện thực hiện thao tác, không phải lỗi đầu vào của client.
-        """
-        request_id = getattr(request.state, "request_id", _new_request_id())
-        is_not_found = "NotFound" in type(exc).__name__
-        logger.warning(
-            "domain_error", request_id=request_id, error_type=type(exc).__name__, error=str(exc)
-        )
-        return _error_response(
-            status_code=404 if is_not_found else 409,
-            code=type(exc).__name__,
-            message=str(exc),
-            request_id=request_id,
-        )
-
-    @app.exception_handler(Exception)
-    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", _new_request_id())
-        logger.error("unhandled_exception", request_id=request_id, error=str(exc), exc_info=exc)
-        return _error_response(
-            status_code=500,
-            code="INTERNAL_ERROR",
-            message="Đã có lỗi hệ thống xảy ra, vui lòng thử lại hoặc báo cán bộ kỹ thuật.",
-            request_id=request_id,
-            detail=str(exc) if settings.app_env != "production" else None,
-        )
-
-    @app.get("/health")
-    async def health_check() -> dict:
-        """Kiểm tra DB, Redis, các provider AI (L1 — suy giảm mềm dựa trên kết quả này)."""
-        database_status = "unknown"
         try:
-            engine = get_engine()
-            async with engine.connect() as conn:
-                await conn.run_sync(lambda _: None)
-            database_status = "ok"
-        except Exception:
-            database_status = "unreachable"
-
-        redis_status = "unknown"
-        try:
-            async for client in get_redis():
-                await client.ping()
-                redis_status = "ok"
-        except Exception:
-            redis_status = "unreachable"
-
-        llm_ok = await get_llm_provider().health_check()
-        stt_ok = await get_stt_provider().health_check()
-        tts_ok = await get_tts_provider().health_check()
-
-        return {
-            "status": "ok",
-            "app_env": settings.app_env,
-            "checks": {
-                "database": database_status,
-                "redis": redis_status,
-                "llm_provider": settings.llm_provider,
-                "llm_provider_ok": llm_ok,
-                "stt_provider": settings.stt_provider,
-                "stt_provider_ok": stt_ok,
-                "tts_provider": settings.tts_provider,
-                "tts_provider_ok": tts_ok,
-            },
-        }
-
-    app.include_router(procedures.router)
-    app.include_router(sessions.router)
-    app.include_router(turns.router)
-    app.include_router(extraction.router)
-    app.include_router(fields.router)
-    app.include_router(readback.router)
-    app.include_router(voice.router)
-
-    return app
+            await asyncio.gather(from_browser_to_gemini(), from_gemini_to_browser())
+        except WebSocketDisconnect:
+            pass
 
 
-app = create_app()
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
