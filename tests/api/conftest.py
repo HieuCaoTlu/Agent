@@ -52,6 +52,7 @@ def redis_mock() -> AsyncMock:
     vừa `store_for_session()` ghi), không cần Redis thật chạy. TTL/`expire`
     không mô phỏng (không cần cho test router)."""
     store: dict[str, bytes] = {}
+    lists: dict[str, list[bytes]] = {}
     mock = AsyncMock()
 
     async def _set(key: str, value: bytes, **kwargs: object) -> None:
@@ -63,10 +64,20 @@ def redis_mock() -> AsyncMock:
     async def _delete(*keys: str) -> None:
         for key in keys:
             store.pop(key, None)
+            lists.pop(key, None)
+
+    async def _rpush(key: str, *values: bytes) -> int:
+        lists.setdefault(key, []).extend(values)
+        return len(lists[key])
+
+    async def _expire(key: str, seconds: int) -> bool:
+        return key in store or key in lists
 
     mock.set.side_effect = _set
     mock.get.side_effect = _get
     mock.delete.side_effect = _delete
+    mock.rpush.side_effect = _rpush
+    mock.expire.side_effect = _expire
     return mock
 
 

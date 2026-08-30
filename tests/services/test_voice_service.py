@@ -150,6 +150,73 @@ async def test_get_partial_results_returns_accumulated_chunks(db_session) -> Non
     await db_session.commit()
 
 
+async def test_stream_results_yields_chunks_as_they_arrive(db_session) -> None:
+    session = await _make_session(db_session)
+    stt = _EchoSTTProvider()
+    redis_client = _make_redis_mock()
+    service = _make_service(db_session, stt, redis_client)
+
+    voice_turn = await service.start_recording(session.id)
+    await db_session.commit()
+
+    # Lấy iterator TRƯỚC khi kết thúc luồng — mô phỏng WebSocket handler đã
+    # `async for` sẵn, chờ kết quả tới trong lúc audio vẫn đang được đẩy vào.
+    results_iter = service.stream_results(voice_turn.id)
+
+    await service.process_audio_chunk(voice_turn.id, b"chunk-1")
+    await service.process_audio_chunk(voice_turn.id, b"chunk-2")
+    # _EchoSTTProvider chỉ phát "final" khi audio_stream đóng — đóng bằng
+    # finalize_turn() (đẩy None vào queue audio, không phải queue kết quả).
+    await service.finalize_turn(voice_turn.id, "transcript cuối cùng")
+    await db_session.commit()
+
+    collected = [result async for result in results_iter]
+
+    # 2 partial (mỗi chunk) + 1 final khi luồng kết thúc (_EchoSTTProvider).
+    assert [r.text for r in collected] == ["phần 1", "phần 2", "transcript cuối cùng"]
+
+
+async def test_stream_results_unknown_turn_raises(db_session) -> None:
+    stt = _EchoSTTProvider()
+    redis_client = _make_redis_mock()
+    service = _make_service(db_session, stt, redis_client)
+
+    with pytest.raises(VoiceTurnNotFound):
+        service.stream_results(uuid.uuid4())
+
+
+async def test_close_recording_stream_returns_final_chunk_before_finalize(db_session) -> None:
+    """Regression: `close_recording_stream()` phải đóng luồng và đợi task nền
+    TRƯỚC khi text cuối được đọc — tránh race condition đã sửa khi làm K
+    (chunk `is_final` của `_EchoSTTProvider` chỉ phát sinh sau khi đóng
+    queue audio, giống hành vi STT thật)."""
+    session = await _make_session(db_session)
+    stt = _EchoSTTProvider()
+    redis_client = _make_redis_mock()
+    service = _make_service(db_session, stt, redis_client)
+
+    voice_turn = await service.start_recording(session.id)
+    await db_session.commit()
+
+    await service.process_audio_chunk(voice_turn.id, b"chunk-1")
+
+    results = await service.close_recording_stream(voice_turn.id)
+
+    assert results[-1].text == "transcript cuối cùng"
+    assert results[-1].is_final is True
+
+    # Turn không còn active — gọi lại trả rỗng, không lỗi (an toàn gọi 2 lần).
+    assert await service.close_recording_stream(voice_turn.id) == []
+
+
+async def test_close_recording_stream_unknown_turn_returns_empty(db_session) -> None:
+    stt = _EchoSTTProvider()
+    redis_client = _make_redis_mock()
+    service = _make_service(db_session, stt, redis_client)
+
+    assert await service.close_recording_stream(uuid.uuid4()) == []
+
+
 async def test_finalize_turn_saves_transcript_and_audit(db_session) -> None:
     session = await _make_session(db_session)
     stt = _EchoSTTProvider()

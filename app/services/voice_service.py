@@ -12,10 +12,18 @@ audio tới theo từng chunk rời rạc qua nhiều lần gọi `process_audio
 Hai giao diện không khớp trực tiếp, nên `VoiceService` giữ một
 `asyncio.Queue[bytes | None]` cho mỗi lượt đang ghi âm: `process_audio_chunk()`
 bỏ chunk vào queue (đồng thời lưu vào buffer Redis); một task nền đọc từ
-queue — bọc thành `AsyncIterator[bytes]` — để đưa vào `transcribe_stream()`,
-gom các `TranscriptChunk` (partial/final) trả về cho tầng gọi tiêu thụ qua
-`get_partial_results()`. `None` trong queue là tín hiệu kết thúc luồng (dùng
-khi `finalize_turn()` được gọi trước khi mọi task nền kết thúc tự nhiên).
+queue — bọc thành `AsyncIterator[bytes]` — để đưa vào `transcribe_stream()`.
+
+**Đẩy kết quả real-time (quyết định đã hỏi người dùng, bổ sung cho K):**
+`_consume_stream()` vừa append từng `TranscriptChunk` vào `_ActiveTurn.results`
+(dùng cho `get_partial_results()` — đọc kết quả gom được tới hiện tại, không
+cần real-time) vừa `put()` ngay vào `_ActiveTurn.results_queue` — một
+`asyncio.Queue[TranscriptChunk | None]` riêng. `stream_results(turn_id)` bọc
+queue đó thành `AsyncIterator[TranscriptChunk]` để WebSocket handler (K)
+`async for` trực tiếp, nhận kết quả ngay khi STT trả về — không cần polling.
+`None` trong `results_queue` là tín hiệu kết thúc luồng, đẩy bởi
+`_consume_stream()` khi `transcribe_stream()` kết thúc tự nhiên (STT đã xử lý
+xong toàn bộ audio đã nhận, không phải do `finalize_turn()` gọi tới).
 """
 
 import asyncio
@@ -53,11 +61,13 @@ class VoiceTurnNotFound(DomainError):
 
 
 class _ActiveTurn:
-    """Trạng thái nội bộ của một lượt đang ghi âm — queue + task nền + kết quả gom được."""
+    """Trạng thái nội bộ của một lượt đang ghi âm — queue audio vào + task nền
+    + kết quả gom được (polling) + queue kết quả ra (real-time, dùng cho K)."""
 
     def __init__(self) -> None:
         self.queue: asyncio.Queue[bytes | None] = asyncio.Queue()
         self.results: list[TranscriptChunk] = []
+        self.results_queue: asyncio.Queue[TranscriptChunk | None] = asyncio.Queue()
         self.task: asyncio.Task[None] | None = None
 
 
@@ -68,6 +78,17 @@ async def _queue_to_async_iterator(queue: asyncio.Queue[bytes | None]) -> AsyncI
         if chunk is None:
             return
         yield chunk
+
+
+async def _results_queue_to_async_iterator(
+    queue: asyncio.Queue[TranscriptChunk | None],
+) -> AsyncIterator[TranscriptChunk]:
+    """Bọc `asyncio.Queue` kết quả thành `AsyncIterator[TranscriptChunk]` — dừng khi gặp `None`."""
+    while True:
+        result = await queue.get()
+        if result is None:
+            return
+        yield result
 
 
 class VoiceService:
@@ -123,28 +144,60 @@ class VoiceService:
         await self._redis.expire(_buffer_key(turn_id), self._audio_buffer_ttl_seconds)
 
     def get_partial_results(self, turn_id: uuid.UUID) -> list[TranscriptChunk]:
-        """Kết quả partial/final đã gom được cho đến hiện tại — dùng để đẩy qua WebSocket."""
+        """Kết quả partial/final đã gom được cho đến hiện tại (snapshot, không real-time)."""
         active = self._active_turns.get(turn_id)
         if active is None:
             raise VoiceTurnNotFound(turn_id)
         return active.results
 
-    async def finalize_turn(self, turn_id: uuid.UUID, transcript: str) -> VoiceTurn:
-        """Kết thúc lượt ghi âm: lưu transcript cuối cùng, đóng queue/task nền.
+    def stream_results(self, turn_id: uuid.UUID) -> AsyncIterator[TranscriptChunk]:
+        """`TranscriptChunk` (partial/final) ngay khi STT trả về — dùng cho K.
 
-        Không tự xóa buffer Redis ở đây — `delete_audio_buffer()` (gọi riêng
-        ngay sau khi tầng trên xác nhận đã nhận transcript) mới là nơi ghi
-        bằng chứng `audio_deleted_at` (NT-6).
+        WebSocket handler `async for result in service.stream_results(turn_id)`
+        để đẩy `partial`/`final` về client thời gian thực, không cần polling
+        `get_partial_results()`. Dừng tự nhiên khi `_consume_stream()` kết
+        thúc (STT xử lý xong toàn bộ audio đã nhận tính tới lúc đó).
+        """
+        active = self._active_turns.get(turn_id)
+        if active is None:
+            raise VoiceTurnNotFound(turn_id)
+        return _results_queue_to_async_iterator(active.results_queue)
+
+    async def close_recording_stream(self, turn_id: uuid.UUID) -> list[TranscriptChunk]:
+        """Đóng luồng audio (đẩy `None` vào queue), đợi task nền xử lý xong
+        toàn bộ audio đã nhận, trả về kết quả gom được đầy đủ (kể cả chunk
+        `is_final` cuối cùng — chỉ phát sinh SAU khi luồng đóng, xem docstring
+        module).
+
+        Tách khỏi `finalize_turn()` vì thứ tự đúng là: đóng luồng trước (để
+        STT kịp trả chunk cuối) → tầng gọi (K) tự ghép text cuối cùng → mới
+        gọi `finalize_turn()` để lưu. Gọi `get_partial_results()`/text trước
+        khi đóng luồng có nguy cơ thiếu chunk cuối (race condition).
+        An toàn khi gọi nhiều lần hoặc khi turn không còn active (trả `[]`).
+        """
+        active = self._active_turns.pop(turn_id, None)
+        if active is None:
+            return []
+        await active.queue.put(None)
+        if active.task is not None:
+            await active.task
+        return active.results
+
+    async def finalize_turn(self, turn_id: uuid.UUID, transcript: str) -> VoiceTurn:
+        """Kết thúc lượt ghi âm: lưu transcript cuối cùng.
+
+        Đóng luồng audio còn dang dở nếu tầng gọi chưa tự gọi
+        `close_recording_stream()` trước (tương thích ngược — polling đơn
+        giản không cần quan tâm race condition ở trên vẫn gọi được thẳng
+        method này). Không tự xóa buffer Redis ở đây — `delete_audio_buffer()`
+        (gọi riêng ngay sau khi tầng trên xác nhận đã nhận transcript) mới là
+        nơi ghi bằng chứng `audio_deleted_at` (NT-6).
         """
         voice_turn = await self._voice_turns.get(turn_id)
         if voice_turn is None:
             raise VoiceTurnNotFound(turn_id)
 
-        active = self._active_turns.pop(turn_id, None)
-        if active is not None:
-            await active.queue.put(None)
-            if active.task is not None:
-                await active.task
+        await self.close_recording_stream(turn_id)
 
         voice_turn.raw_transcript = transcript
         await self._voice_turns.update(voice_turn)
@@ -214,10 +267,18 @@ class VoiceService:
         return voice_turn
 
     async def _consume_stream(self, turn_id: uuid.UUID, active: _ActiveTurn) -> None:
-        """Task nền: đọc queue như `AsyncIterator[bytes]`, gom `TranscriptChunk` từ STT."""
+        """Task nền: đọc queue như `AsyncIterator[bytes]`, gom `TranscriptChunk` từ STT.
+
+        Mỗi kết quả vừa append vào `results` (polling) vừa `put()` ngay vào
+        `results_queue` (real-time, K) — hai đường tiêu thụ độc lập, không
+        loại trừ nhau. Đẩy `None` vào `results_queue` khi `transcribe_stream()`
+        kết thúc để `stream_results()` dừng đúng lúc.
+        """
         audio_stream = _queue_to_async_iterator(active.queue)
         async for result in self._stt.transcribe_stream(audio_stream):
             active.results.append(result)
+            await active.results_queue.put(result)
+        await active.results_queue.put(None)
 
     async def _get_session_or_raise(self, session_id: uuid.UUID) -> None:
         session = await self._sessions.get(session_id)

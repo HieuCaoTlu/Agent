@@ -453,10 +453,38 @@
 > tại) — trước đó repository chỉ có `add`/`get`/`list_by_session`, chưa có
 > chỗ ghi thay đổi (`raw_transcript`, `edited_transcript`,
 > `flagged_by_staff`, `audio_deleted_at`) sau khi tạo.
-> Test: `tests/services/test_voice_service.py` (14 test) — dùng
+> Test: `tests/services/test_voice_service.py` (16 test) — dùng
 > `_EchoSTTProvider` (fake, trả partial theo từng chunk + 1 final khi luồng
 > kết thúc) và `AsyncMock` cho Redis client (cùng kỹ thuật đã dùng ở
 > `test_tts_cache_service.py`).
+>
+> **Bổ sung (30/8/2026, khi làm K):** thêm `stream_results(turn_id)` +
+> `_ActiveTurn.results_queue` (`asyncio.Queue[TranscriptChunk | None]`) —
+> vấn đề kỹ thuật đã hỏi người dùng: WebSocket (K) cần đẩy `partial`/`final`
+> về client NGAY khi STT trả về, nhưng `get_partial_results()` chỉ đọc
+> snapshot list `results` (polling, không real-time). Người dùng chọn
+> **thêm callback/queue kết quả vào VoiceService (Recommended)**:
+> `_consume_stream()` giờ vừa append vào `results` (giữ nguyên cho polling)
+> vừa `put()` ngay vào `results_queue` riêng; `stream_results()` bọc queue
+> đó thành `AsyncIterator[TranscriptChunk]` để WebSocket `async for` trực
+> tiếp. `None` đẩy vào `results_queue` khi `transcribe_stream()` kết thúc
+> tự nhiên, để vòng lặp `async for` dừng đúng lúc.
+>
+> **Sửa lỗi (30/8/2026, khi làm K):** phát hiện race condition thật —
+> `stop` phải đọc text cuối TRƯỚC hay SAU khi đóng luồng audio? Chunk
+> `is_final` chỉ phát sinh SAU khi luồng audio đóng (STT cần nhận hết audio
+> mới trả kết quả cuối), nên đọc `get_partial_results()` trước khi đóng
+> luồng có nguy cơ thiếu chunk cuối. Đã hỏi người dùng, chọn **thêm
+> `close_recording_stream()` riêng, tầng gọi tự ghép text (Recommended)**:
+> tách `finalize_turn(turn_id, transcript)` thành 2 bước — method mới
+> `close_recording_stream(turn_id)` chỉ đóng queue + đợi task nền + trả kết
+> quả gom được đầy đủ (an toàn gọi nhiều lần/turn không active, trả `[]`);
+> `finalize_turn()` giờ chỉ lưu DB (gọi `close_recording_stream()` bên trong
+> để tương thích ngược nếu tầng gọi chưa tự đóng trước). K gọi
+> `close_recording_stream()` trước, tự ghép text cuối, rồi mới gọi
+> `finalize_turn()`. Test bổ sung:
+> `test_close_recording_stream_returns_final_chunk_before_finalize`,
+> `test_close_recording_stream_unknown_turn_returns_empty` (18 test tổng).
 
 ### I5. ReadbackService
 
@@ -608,16 +636,50 @@
 
 ## K. WebSocket giọng nói
 
-- [ ] Viết endpoint `WS /api/v1/sessions/{id}/voice`
-- [ ] Xử lý message `start` — **bấm nút hỏi**: khởi tạo lượt thoại, mở kết nối tới STT
-- [ ] Xử lý message `audio` — kiểm tra kích thước chunk, đẩy tới STT
-- [ ] Xử lý message `stop` — chốt transcript, lưu DB, xóa audio buffer
-- [ ] Gửi message `partial` khi có kết quả từng phần
-- [ ] Gửi message `final` khi chốt một lượt
-- [ ] Gửi message `error` khi STT lỗi
-- [ ] Gửi message `audio_deleted` xác nhận đã xóa buffer
-- [ ] Xử lý ngắt kết nối đột ngột — dọn dẹp buffer, ghi audit
-- [ ] Giới hạn thời lượng ghi âm, tự động dừng khi vượt
+- [x] Viết endpoint `WS /api/v1/sessions/{id}/voice`
+- [x] Xử lý message `start` — **bấm nút hỏi**: khởi tạo lượt thoại, mở kết nối tới STT
+- [x] Xử lý message `audio` — kiểm tra kích thước chunk, đẩy tới STT
+- [x] Xử lý message `stop` — chốt transcript, lưu DB, xóa audio buffer
+- [x] Gửi message `partial` khi có kết quả từng phần
+- [x] Gửi message `final` khi chốt một lượt
+- [x] Gửi message `error` khi STT lỗi
+- [x] Gửi message `audio_deleted` xác nhận đã xóa buffer
+- [x] Xử lý ngắt kết nối đột ngột — dọn dẹp buffer, ghi audit
+- [x] Giới hạn thời lượng ghi âm, tự động dừng khi vượt
+
+> **Hiện thực (30/8/2026):** `app/api/routers/voice.py` — một endpoint
+> `@router.websocket("/api/v1/sessions/{session_id}/voice")`, giao thức
+> đúng Mục 9.2 của Plan.MD (dòng 982-997): nhận `start`/`audio`/`stop`, gửi
+> `partial`/`final`/`error`/`audio_deleted`.
+> Kiến trúc: một task nền (`_forward_results`) `async for` trực tiếp
+> `VoiceService.stream_results(turn_id)` (I4, bổ sung khi làm K — xem ghi
+> chú ở mục I4) để đẩy `partial`/`final` về client ngay khi STT trả về,
+> chạy song song với vòng lặp chính nhận message JSON từ client — cần thiết
+> vì STT trả kết quả không đồng bộ với nhịp client gửi chunk.
+> `audio`: giải mã base64, chặn payload giải mã vượt `_MAX_CHUNK_BYTES`
+> (256 KiB, tự chọn — đủ cho vài trăm ms PCM 16kHz/mono/16-bit, chưa có
+> setting riêng trong `Settings` cho giới hạn này) trả lỗi
+> `CHUNK_TOO_LARGE` (L2).
+> `stop`: gọi `close_recording_stream()` (I4, method mới tách ra để tránh
+> race condition — xem ghi chú mục I4) lấy kết quả cuối, ghép text final,
+> `finalize_turn()` lưu DB, đợi `_forward_results` kết thúc (timeout 5s,
+> hủy nếu quá), rồi `delete_audio_buffer()` và gửi `audio_deleted`.
+> Giới hạn thời lượng ghi âm: `recording_deadline` tính từ lúc `start`
+> (`asyncio.get_event_loop().time() + settings.max_recording_seconds`),
+> vòng lặp chính `asyncio.wait_for(websocket.receive_json(), timeout=...)`
+> với timeout còn lại tới deadline — hết giờ tự động chạy lại logic `stop`
+> rồi gửi `error` code `RECORDING_TIMEOUT`, không đóng kết nối (cán bộ ghi
+> âm lượt kế tiếp bình thường).
+> Ngắt kết nối đột ngột: bắt `WebSocketDisconnect`, hủy task nền, gọi
+> `delete_audio_buffer()` (bỏ qua `VoiceTurnNotFound` nếu turn chưa từng
+> tồn tại), ghi log `warning` — không có message `stop` từ client nên
+> không gọi `finalize_turn()` (transcript coi như chưa hoàn tất, giữ
+> `raw_transcript=None`).
+> Test: `tests/api/test_voice_websocket.py` (1 test, cùng phạm vi hẹp có
+> chủ đích như J — dùng `MockSTTProvider`, override `get_stt_provider`) —
+> một luồng `start` → `audio` → `stop` xác nhận đúng message `final` +
+> `audio_deleted`. `tests/api/conftest.py` bổ sung `rpush`/`expire` vào
+> Redis giả lập (`redis_mock`) — cần cho `process_audio_chunk()`.
 
 ---
 

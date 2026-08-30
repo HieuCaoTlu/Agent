@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.deps import get_llm_provider, get_stt_provider, get_tts_provider
-from app.api.routers import extraction, fields, procedures, readback, sessions, turns
+from app.api.routers import extraction, fields, procedures, readback, sessions, turns, voice
 from app.config import get_settings
 from app.db.database import dispose_engine, get_engine
 from app.db.redis_client import dispose_pool, get_redis
@@ -222,6 +222,7 @@ def create_app() -> FastAPI:
     app.include_router(extraction.router)
     app.include_router(fields.router)
     app.include_router(readback.router)
+    app.include_router(voice.router)
 
     return app
 
