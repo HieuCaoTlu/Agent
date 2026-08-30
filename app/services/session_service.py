@@ -131,6 +131,31 @@ class SessionService:
         await self._sessions.update(session)
         return session
 
+    async def start_listening(self, session_id: uuid.UUID) -> Session:
+        """Chuyển phiên sang `LISTENING` (B1 của Plan.MD) — cán bộ bắt đầu cho
+        người dân trình bày bằng lời nói, TRƯỚC khi chọn thủ tục (B2 diễn ra
+        sau, dựa trên nội dung vừa nghe). Đây là cạnh `CREATED -> LISTENING`
+        (C1) mà trước đây không có endpoint/service nào gọi tới — khoảng
+        trống đã ghi nhận từ phần J, nay hoàn thiện khi frontend cần dùng
+        thật (I1 hoàn thiện thêm)."""
+        session = await self._get_or_raise(session_id)
+        next_state = transition(SessionState(session.state), SessionEvent.START_LISTENING)
+        session.state = next_state.value
+        await self._sessions.update(session)
+        return session
+
+    async def open_review(self, session_id: uuid.UUID) -> Session:
+        """Chuyển phiên sang `REVIEWING` (B4->B5 của Plan.MD) — cán bộ bấm mở
+        xem gợi ý AI để bắt đầu đối chiếu/xác nhận từng trường. Cạnh
+        `SUGGESTED -> REVIEWING` (C1), khoảng trống còn lại sau khi L hoàn
+        thiện `request_extraction`/`extraction_success`/`extraction_failed`
+        (I1 hoàn thiện thêm)."""
+        session = await self._get_or_raise(session_id)
+        next_state = transition(SessionState(session.state), SessionEvent.OPEN_REVIEW)
+        session.state = next_state.value
+        await self._sessions.update(session)
+        return session
+
     async def select_procedure(self, session_id: uuid.UUID, code: str) -> Session:
         """Chọn thủ tục cho phiên: kiểm tra catalog, chuyển trạng thái, khởi tạo
         `field_states` rỗng cho mọi trường của thủ tục.

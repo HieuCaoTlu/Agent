@@ -86,6 +86,32 @@ async def record_consent(
     return SessionResponse.from_model(session)
 
 
+@router.post("/{session_id}/start-listening", response_model=SessionResponse)
+async def start_listening(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    service: SessionService = Depends(get_session_service),
+) -> SessionResponse:
+    """Chuyển phiên sang `LISTENING` (B1) — cán bộ bắt đầu cho người dân
+    trình bày bằng lời nói, TRƯỚC khi chọn thủ tục (B2 diễn ra sau)."""
+    session = await service.start_listening(session_id)
+    await db.commit()
+    return SessionResponse.from_model(session)
+
+
+@router.post("/{session_id}/open-review", response_model=SessionResponse)
+async def open_review(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    service: SessionService = Depends(get_session_service),
+) -> SessionResponse:
+    """Chuyển phiên sang `REVIEWING` (B4->B5) — cán bộ bấm mở xem gợi ý AI
+    để bắt đầu đối chiếu/xác nhận từng trường."""
+    session = await service.open_review(session_id)
+    await db.commit()
+    return SessionResponse.from_model(session)
+
+
 @router.post("/{session_id}/procedure", response_model=SessionResponse)
 async def select_procedure(
     session_id: uuid.UUID,

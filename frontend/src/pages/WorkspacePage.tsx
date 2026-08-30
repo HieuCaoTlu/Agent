@@ -3,7 +3,7 @@
  * trái = lời nói người dân (transcript + ghi âm + checklist hồ sơ),
  * phải = thông tin gợi ý (trường dữ liệu + tiến độ + cảnh báo + đọc lại).
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -19,7 +19,12 @@ import { WarningList } from '@/components/WarningList'
 import { useConfirmField, useExtract, useUnconfirmField } from '@/hooks/useFields'
 import { useProcedureDetail, useProcedures } from '@/hooks/useProcedures'
 import { useSession } from '@/hooks/useSession'
-import { useCancelSession, useSelectProcedure } from '@/hooks/useSessionActions'
+import {
+  useCancelSession,
+  useOpenReview,
+  useSelectProcedure,
+  useStartListening,
+} from '@/hooks/useSessionActions'
 import { useEditTranscript, useFlagTranscript, useTurns } from '@/hooks/useTurns'
 import { useVoiceStream } from '@/hooks/useVoiceStream'
 import { fieldsApi } from '@/api/fields'
@@ -41,6 +46,9 @@ function ProcedureSelector({ sessionId }: { sessionId: string }) {
   return (
     <div className="mx-auto max-w-lg p-6">
       <h2 className="mb-4 text-xl font-semibold text-gray-900">Chọn thủ tục hành chính</h2>
+      <p className="mb-4 text-base text-gray-600">
+        Dựa vào nội dung người dân vừa trình bày, chọn thủ tục phù hợp bên dưới.
+      </p>
       <ul className="flex flex-col gap-2">
         {procedures?.map((p) => (
           <li key={p.code}>
@@ -54,6 +62,86 @@ function ProcedureSelector({ sessionId }: { sessionId: string }) {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * B1 (Plan.MD) — giai đoạn ghi âm TRƯỚC khi chọn thủ tục. `session.state`
+ * phải qua LISTENING (start-listening, I1) trước khi có thể chọn thủ tục
+ * (select_procedure chỉ hợp lệ từ LISTENING, C1) — tự động gọi ngay khi vào
+ * trang nếu phiên còn ở CREATED, không bắt cán bộ bấm thêm một nút riêng.
+ */
+function ListeningStage({
+  sessionId,
+  sessionState,
+  staffName,
+  turns,
+  voice,
+  onEditTranscript,
+  onFlagTranscript,
+}: {
+  sessionId: string
+  sessionState: string
+  staffName: string
+  turns: { id: string; turn_number: number }[]
+  voice: ReturnType<typeof useVoiceStream>
+  onEditTranscript: (turnId: string, newText: string) => void
+  onFlagTranscript: (turnId: string) => void
+}) {
+  const startListening = useStartListening(sessionId)
+  const { data: turnsFull } = useTurns(sessionId)
+
+  useEffect(() => {
+    if (sessionState === 'CREATED' && !startListening.isPending && !startListening.isSuccess) {
+      startListening.mutate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionState])
+
+  if (sessionState === 'CREATED') {
+    return (
+      <div className="p-6">
+        <LoadingIndicator label="Đang chuẩn bị ghi âm..." />
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
+      <h1 className="text-xl font-semibold text-gray-900">Bước 1 — Nghe người dân trình bày</h1>
+      <p className="text-base text-gray-600">
+        Bấm ghi âm và để người dân trình bày nhu cầu bằng lời nói. Sau khi có ít nhất một lượt
+        ghi âm, bạn có thể chọn thủ tục phù hợp.
+      </p>
+
+      <TranscriptList
+        turns={turnsFull ?? []}
+        partialText={voice.partialText}
+        onEdit={onEditTranscript}
+        onAskAgain={() => voice.start()}
+        onFlag={onFlagTranscript}
+      />
+
+      <div className="flex justify-center py-4">
+        <RecordButton
+          status={voice.status}
+          volumeLevel={voice.volumeLevel}
+          recordingStartedAt={voice.recordingStartedAt}
+          lastError={voice.lastError}
+          onStart={() => void voice.start()}
+          onStop={() => voice.stop()}
+        />
+      </div>
+
+      {turns.length > 0 ? (
+        <ProcedureSelector sessionId={sessionId} />
+      ) : (
+        <p className="text-center text-base text-gray-400">
+          Ghi âm ít nhất một lượt để tiếp tục chọn thủ tục.
+        </p>
+      )}
+      <p className="text-center text-sm text-gray-400">Cán bộ: {staffName}</p>
     </div>
   )
 }
@@ -79,6 +167,7 @@ export function WorkspacePage() {
   const confirmField = useConfirmField(sessionId ?? '')
   const unconfirmField = useUnconfirmField(sessionId ?? '')
   const cancelSession = useCancelSession(sessionId ?? '')
+  const openReview = useOpenReview(sessionId ?? '')
 
   const handleFinalTurn = useCallback(() => {
     // Lượt mới đã lưu — trích xuất lại toàn bộ transcript hiện có (UC2).
@@ -90,6 +179,17 @@ export function WorkspacePage() {
   }, [turns, extract])
 
   const voice = useVoiceStream(sessionId ?? '', handleFinalTurn)
+
+  const sessionState = snapshot?.session.state
+  // B4 (Plan.MD) — cán bộ tự động "mở xem gợi ý" ngay khi trích xuất xong
+  // (SUGGESTED -> REVIEWING, open-review, I1) — MVP không cần một màn hình
+  // trung gian riêng cho bước bấm mở, xác nhận trường (B5) diễn ra ngay.
+  useEffect(() => {
+    if (sessionState === 'SUGGESTED' && !openReview.isPending && !openReview.isSuccess) {
+      openReview.mutate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionState])
 
   if (isLoading || !snapshot) {
     return (
@@ -103,7 +203,25 @@ export function WorkspacePage() {
   const fields = fieldItems ?? []
 
   if (session.procedure_code === null) {
-    return <ProcedureSelector sessionId={session.id} />
+    return (
+      <ListeningStage
+        sessionId={session.id}
+        sessionState={session.state}
+        staffName={staffName}
+        turns={turns ?? []}
+        voice={voice}
+        onEditTranscript={(turnId, newText) => editTranscript.mutate({ turnId, newText, staffName })}
+        onFlagTranscript={(turnId) => flagTranscript.mutate({ turnId, staffName })}
+      />
+    )
+  }
+
+  if (session.state === 'EXTRACTING' || session.state === 'SUGGESTED') {
+    return (
+      <div className="p-6">
+        <LoadingIndicator label="Đang chuẩn bị gợi ý từ AI..." />
+      </div>
+    )
   }
 
   const requiredFields = (procedureDetail?.fields ?? []).filter((f) => f.required)

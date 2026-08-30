@@ -630,23 +630,28 @@
 > phần còn lại của J trước. Khai báo mã lỗi trong OpenAPI (`responses=` của
 > từng route) cũng chưa làm — có thể bổ sung sau, không chặn phần K trở đi.
 >
-> **Khoảng trống thiết kế đã phát hiện (chưa sửa theo quyết định người
-> dùng — "cách ít tốn kém nhất"):** bảng chuyển trạng thái (C1) có các cạnh
-> `start_listening` (CREATED→LISTENING),
+> **Khoảng trống thiết kế đã phát hiện ở J (nay đã vá hết — 30/8/2026):**
+> bảng chuyển trạng thái (C1) có các cạnh `start_listening` (CREATED→LISTENING),
 > `request_extraction`/`extraction_success`/`extraction_failed`
 > (PROCEDURE_SELECTED→EXTRACTING→SUGGESTED/AI_UNAVAILABLE), `open_review`
 > (SUGGESTED→REVIEWING), `manual_entry` (AI_UNAVAILABLE→REVIEWING),
-> `ask_again` (REVIEWING→LISTENING) mà **không service hay endpoint nào**
-> (I1-I5, J1-J6) hiện gọi tới — `ExtractionService.extract()` không đụng
-> `session.state` dù trích xuất thành công/thất bại, và J2 không có endpoint
-> tương ứng cho `start_listening`/`open_review`/`manual_entry`/`ask_again`.
-> Nghĩa là luồng CREATED → COMPLETED không thể đi hết bằng cách chỉ gọi API
-> — cần set thẳng `session.state` qua DB ở các bước đó (đã làm trong test
-> E2E, xem `tests/api/test_e2e_flow.py`). Đây là việc còn thiếu thật sự,
-> để dành sửa sau (có thể ở một mục riêng khi rà lại toàn bộ luồng, không
-> thuộc phạm vi J) — không tự sửa ở đây vì sẽ phải động vào
-> `ExtractionService` (I2, đã hoàn thiện + test kỹ) chỉ để phục vụ một
-> thay đổi ngoài yêu cầu ban đầu của J.
+> `ask_again` (REVIEWING→LISTENING) mà lúc viết J **không service/endpoint
+> nào** gọi tới, khiến luồng CREATED → COMPLETED không thể đi hết chỉ bằng
+> API thật (test E2E khi đó phải set thẳng `session.state` qua DB).
+> `request_extraction`/`extraction_success`/`extraction_failed` đã vá ở
+> phần L (bắt buộc theo NT-8). `start_listening` và `open_review` phát hiện
+> còn thiếu khi frontend thật (M/N/O) gặp lỗi `INVALID_TRANSITION` thực tế
+> lúc thao tác qua giao diện — vá nốt bằng
+> `SessionService.start_listening()`/`open_review()` +
+> `POST /sessions/{id}/start-listening`/`open-review` (I1 hoàn thiện thêm),
+> và sửa `WorkspacePage` cho đúng thứ tự nghiệp vụ thật: B1 (ghi âm) diễn ra
+> TRƯỚC B2 (chọn thủ tục) — trước đó UI cho chọn thủ tục ngay khi vào phiên,
+> ngược với Plan.MD 5.1. `manual_entry`/`ask_again` vẫn còn thiếu — không
+> phát sinh lỗi thực tế trong luồng chính đã kiểm thử (frontend hiện chưa
+> có nút "chuyển nhập tay thủ công" tường minh khi `AI_UNAVAILABLE`, chỉ tự
+> cho nhập tay các trường mà không đổi state; "hỏi lại" từ `REVIEWING` gọi
+> lại ghi âm nhưng không có endpoint đổi state về `LISTENING`) — để dành
+> sửa khi phát sinh nhu cầu thật, cùng cách tiếp cận với các cạnh đã vá.
 >
 > Test: `tests/api/conftest.py` (fixture `client` — `httpx.AsyncClient` +
 > `ASGITransport` gọi thẳng app, override `get_db`/`get_redis`/

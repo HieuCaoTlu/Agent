@@ -10,8 +10,12 @@ export const sessionsApi = {
     apiClient.get<Session[]>(`/api/v1/sessions?limit=${limit}&offset=${offset}`),
   recordConsent: (sessionId: string, consented: boolean) =>
     apiClient.post<Session>(`/api/v1/sessions/${sessionId}/consent`, { consented }),
+  startListening: (sessionId: string) =>
+    apiClient.post<Session>(`/api/v1/sessions/${sessionId}/start-listening`),
   selectProcedure: (sessionId: string, code: string) =>
     apiClient.post<Session>(`/api/v1/sessions/${sessionId}/procedure`, { code }),
+  openReview: (sessionId: string) =>
+    apiClient.post<Session>(`/api/v1/sessions/${sessionId}/open-review`),
   cancel: (sessionId: string, reason?: string) =>
     apiClient.post<Session>(`/api/v1/sessions/${sessionId}/cancel`, { reason: reason ?? null }),
   complete: (sessionId: string, dossierCode: string) =>

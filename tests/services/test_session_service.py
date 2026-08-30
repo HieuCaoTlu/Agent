@@ -101,6 +101,27 @@ async def test_select_procedure_before_listening_raises(db_session) -> None:
         await service.select_procedure(session.id, "dang_ky_khai_sinh")
 
 
+async def test_start_listening_transitions_created_to_listening(db_session) -> None:
+    service = _make_service(db_session)
+    session = await service.create_session(staff_name="Cán bộ A")
+    await db_session.commit()
+
+    updated = await service.start_listening(session.id)
+    await db_session.commit()
+
+    assert updated.state == SessionState.LISTENING.value
+
+
+async def test_start_listening_from_wrong_state_raises(db_session) -> None:
+    service = _make_service(db_session)
+    session = await service.create_session(staff_name="Cán bộ A")
+    await service.start_listening(session.id)
+    await db_session.commit()
+
+    with pytest.raises(InvalidTransitionError):
+        await service.start_listening(session.id)
+
+
 async def test_select_procedure_success_after_listening(db_session) -> None:
     from app.domain.session_state import SessionEvent, transition
 

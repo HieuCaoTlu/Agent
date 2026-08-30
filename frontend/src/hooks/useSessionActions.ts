@@ -22,10 +22,26 @@ export function useRecordConsent(sessionId: string) {
   })
 }
 
+export function useStartListening(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => sessionsApi.startListening(sessionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: sessionQueryKey(sessionId) }),
+  })
+}
+
 export function useSelectProcedure(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (code: string) => sessionsApi.selectProcedure(sessionId, code),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: sessionQueryKey(sessionId) }),
+  })
+}
+
+export function useOpenReview(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => sessionsApi.openReview(sessionId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: sessionQueryKey(sessionId) }),
   })
 }

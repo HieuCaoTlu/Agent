@@ -43,13 +43,14 @@ async def test_full_session_flow_from_creation_to_completion(
     assert consent_resp.status_code == 200
     assert consent_resp.json()["citizen_consent"] is True
 
-    # --- khoảng trống: CREATED -> LISTENING (start_listening) không có
-    # endpoint/service nào gọi tới — set thẳng qua DB.
+    # B1 — bắt đầu ghi âm (I1 hoàn thiện), chuyển CREATED -> LISTENING
+    start_listening_resp = await client.post(
+        f"/api/v1/sessions/{session_id}/start-listening"
+    )
+    assert start_listening_resp.status_code == 200
+    assert start_listening_resp.json()["state"] == "LISTENING"
+
     session_repo = SessionRepository(db_session)
-    session = await session_repo.get(uuid.UUID(session_id))
-    session.state = "LISTENING"
-    await session_repo.update(session)
-    await db_session.commit()
 
     # B3 — chọn thủ tục (J2), chuyển LISTENING -> PROCEDURE_SELECTED
     procedure_resp = await client.post(
@@ -64,14 +65,21 @@ async def test_full_session_flow_from_creation_to_completion(
     field_names = {fs["field_name"] for fs in state_resp.json()["field_states"]}
     assert "ho_ten_nguoi_duoc_khai_sinh" in field_names
 
-    # --- khoảng trống: PROCEDURE_SELECTED -> EXTRACTING -> SUGGESTED ->
-    # REVIEWING (request_extraction/extraction_success/open_review) không
-    # service nào gọi tới (ExtractionService không đụng session.state) —
-    # set thẳng qua DB, bỏ qua bước gọi LLM thật (đã test kỹ ở I2).
+    # B3 — trích xuất (J4); PROCEDURE_SELECTED -> EXTRACTING -> SUGGESTED tự
+    # động qua ExtractionService (L). Không cần lượt thoại thật nào — provider
+    # mock trả fields rỗng, chỉ cần xác nhận đúng chuyển trạng thái.
+    extract_resp = await client.post(
+        f"/api/v1/sessions/{session_id}/extract", json={"include_turns": []}
+    )
+    assert extract_resp.status_code == 200
+
     session = await session_repo.get(uuid.UUID(session_id))
-    session.state = "REVIEWING"
-    await session_repo.update(session)
-    await db_session.commit()
+    assert session.state == "SUGGESTED"
+
+    # B4 — cán bộ mở xem gợi ý (J2 hoàn thiện), chuyển SUGGESTED -> REVIEWING
+    open_review_resp = await client.post(f"/api/v1/sessions/{session_id}/open-review")
+    assert open_review_resp.status_code == 200
+    assert open_review_resp.json()["state"] == "REVIEWING"
 
     # B5 — cán bộ xác nhận từng trường bắt buộc (J5), tự chuyển FIELDS_CONFIRMED
     catalog_fields = {
