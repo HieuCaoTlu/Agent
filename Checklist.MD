@@ -44,7 +44,7 @@ data/
 - **Text/reasoning thuần**: trừu tượng qua `text_model.py`, provider chọn bằng `.env` (`TEXT_MODEL_PROVIDER`): Gemini SDK trực tiếp, hoặc nhánh OpenAI-compatible (`httpx`) cho Ollama/OpenRouter.
 - **Tự động hóa trình duyệt**: Chrome extension (Manifest V3) — `background.js` giữ WebSocket riêng tới backend (`/extension`), `content_script.js` thao tác DOM bằng `simulateClick` (giả lập pointerdown/mousedown/click, vì `.click()` thuần không kích hoạt đúng React) và native setter cho input.
 - **Khảo sát dữ liệu 1 lần**: Playwright (dev-dependency) để dựng `procedure_flat_index.json`.
-- **Frontend**: vanilla JS, AudioWorklet resample/encode PCM 16kHz gửi lên, giải mã PCM 24kHz nhận về bằng Web Audio API thuần.
+- **Frontend**: vanilla JS, AudioWorklet resample/encode PCM 16kHz gửi lên, giải mã PCM 24kHz nhận về bằng Web Audio API thuần. Orb ở màn hình chờ (`static/orb.js`) dùng Three.js (CDN, r0.158) — icosahedron + custom GLSL shader (simplex noise displacement + fresnel glow xoay), không audio-reactive (màn chờ chưa có audio thật); tự dừng render qua `MutationObserver` khi `#idleCard` bị ẩn để không tốn GPU lúc đang chat.
 - **Không dùng**: embedding/vector DB (RAG chỉ keyword-match), không session/auth (chạy local).
 
 ## Trợ lý giọng nói
@@ -71,7 +71,7 @@ Tác vụ text thuần (trích tên thủ tục, chọn CSS selector, phân tíc
 
 ## Màn hình: chờ (`#idleCard`)
 
-Nút "Bắt đầu hỗ trợ" (`#startBtn`) → mở `/ws`, chuyển sang màn hình chat. Nút "Test nộp: Đăng ký khai sinh" (`#testSubmitBtn`) → mở `/ws` và gửi thẳng `submit_procedure` với tên cố định, để test nhanh không cần nói qua giọng nói. Badge trạng thái kết nối extension (`#extensionStatus`, xem mục "Giao diện extension" bên dưới).
+Nút "Bắt đầu hỗ trợ" (`#startBtn`) → mở `/ws`, chuyển sang màn hình chat. Nút "Quét trang" (`#testScanBtn`, `startScanTest()`) → mở `/ws` như bình thường (mic hoạt động, có thể nói tiếp ngay trong phiên), tự động gửi `trigger_scan_form` ngay khi kết nối xong và hiện sẵn `#postSubmitActions` — dùng để quét form trên bất kỳ tab `*.gov.vn` đang mở sẵn mà không cần đi qua toàn bộ luồng nộp hồ sơ trước. Link "Quản lý dữ liệu thủ tục" hiện ẩn (`hidden` trong HTML, không xóa code). Badge trạng thái kết nối extension (`#extensionStatus`, xem mục "Giao diện extension" bên dưới).
 
 ## Màn hình: chat (`#chatCard`)
 
@@ -81,9 +81,7 @@ Luôn có: sóng âm + dòng trạng thái (`#status`), khung transcript (`#chat
 
 **Nhóm nút sau khi vào trang form thật** (`#postSubmitActions`, ẩn mặc định): hiện cùng lúc `submit_procedure_done` (sau khi `run_fixed_submit_flow` xong) — không tự ẩn, bấm lại được nhiều lần:
 - **"Quét trang"** (`#triggerScanBtn`) → gửi `trigger_scan_form`, xử lý y hệt tool-call `scan_form_fields` của AI (xem mục quét form bên dưới) nhưng khởi phát từ UI thay vì giọng nói.
-- **"Thành phần hồ sơ cần chuẩn bị"** (`#requiredDocsBtn`) → gửi `request_required_documents`, hiện list card (`renderRequiredDocumentsCard`) tóm tắt giấy tờ cần chuẩn bị, không qua giọng nói.
-
-**Nhóm nút chọn cách điền** (`#scanChoicePrompt`, ẩn mặc định): hiện sau khi AI tóm tắt xong các trường đã quét được (turn_complete) — 2 nút [Nhờ AI nhập] [Tôi tự điền].
+- **"Thành phần hồ sơ cần chuẩn bị"** (`#requiredDocsBtn`) → gửi `request_required_documents`, hiện list card (`renderRequiredDocumentsCard`, không viền trái nhấn màu như card thủ tục RAG) tóm tắt giấy tờ cần chuẩn bị, đồng thời bơm turn giả để AI tự đọc lại ngắn gọn danh sách bằng giọng nói.
 
 ## Nghiệp vụ: luồng nộp hồ sơ
 
@@ -120,12 +118,16 @@ Index tĩnh: `procedure_index.py` tra `data/procedure_flat_index.json` (319 th�
 
 System instruction (`voice_provider.py`): mở đầu bằng câu "Tôi là trợ lý giọng nói ảo của Phường Yên Sở, bạn muốn hỗ trợ thủ tục hành chính nào?"; biết sẵn địa chỉ Yên Sở/Hà Nội; nếu chưa rõ thủ tục thì hỏi lại trước, chưa vội gọi tool.
 
+Giọng đọc cố định qua `speech_config` (`GEMINI_VOICE_NAME` trong `.env`, mặc định `"Kore"`) — trước đây không set nên Gemini Live tự chọn giọng ngẫu nhiên mỗi phiên. Danh sách 30 giọng có sẵn ghi trong `.env`; tài liệu chính thức không công bố giới tính/vùng miền từng giọng, chỉ có mô tả tính cách ngắn (Kore = "Firm").
+
 ## Nghiệp vụ: quét form và tự điền (Gemini Live function calling)
 
-Chỗ duy nhất dùng function calling thật của Gemini Live (`types.Tool`) — khác `submit_procedure` vốn chỉ dựa vào nút bấm + so khớp keyword. Kích hoạt bằng giọng nói ("quét trang giúp tôi"/"giờ tôi phải làm gì", đã đăng nhập VNeID) hoặc bấm nút "Quét trang" (`#triggerScanBtn`).
+Chỗ duy nhất dùng function calling thật của Gemini Live (`types.Tool`, 2 hàm: `scan_form_fields`, `fill_form_fields`) — khác `submit_procedure` vốn chỉ dựa vào nút bấm + so khớp keyword. Không còn nút bấm chọn cách điền — AI tự quyết định gọi `fill_form_fields` khi người dùng nói rõ ý muốn được điền hộ (vd "bạn điền giúp tôi đi").
 
 ```
-KHI kích hoạt (Gemini Live tự gọi function scan_form_fields, hoặc nút Quét trang)
+KHI người dùng nói "quét trang giúp tôi"/"giờ tôi phải làm gì" (đã đăng nhập VNeID),
+hoặc bấm nút "Quét trang" (#triggerScanBtn)
+  → AI gọi (hoặc backend gọi thay khi là nút bấm) scan_form_fields
   → backend lệnh extension scan_form_with_comboboxes (timeout 60s, không phải 20s mặc định):
       tìm mọi nút combobox custom (button.custom-input-typography), với MỖI nút:
       gán data-scan-field-id tạm → bấm mở → đọc options thật (li[role="option"]) →
@@ -144,28 +146,39 @@ KHI kích hoạt (Gemini Live tự gọi function scan_form_fields, hoặc nút 
     PHẢI dùng selector [data-scan-field-id="..."] và options đúng danh sách thật đã bấm
     mở, không tự bịa), hoặc "choice_option" (MỘT lựa chọn cụ thể trong nhóm radio/checkbox
     đã hiển thị sẵn, vd <x-radio> — selector trỏ thẳng vào lựa chọn con, không phải cả nhóm)
-  → lưu fields vào session_state (theo phiên), trả kết quả cho Gemini qua tool_response
-    (nếu do nút bấm thì bơm turn giả để AI tự tóm tắt)
-  → AI tóm tắt các trường, hỏi "muốn nhờ AI tự điền hay tự điền lấy"
+  → lưu fields vào session_state (theo phiên); kết quả trả về Gemini qua tool_response
+    khi do AI tự gọi, hoặc gói gọn trong 1 turn giả ngắn (chỉ số lượng + label, KHÔNG bơm
+    nguyên field list dạng Python repr vào text — từng gây lỗi 1011 Internal error từ
+    Gemini Live vì payload quá dài/sai định dạng) khi do nút bấm
+  → AI tóm tắt ngắn gọn các trường cần điền cho người dùng nghe
 
-  KHI AI nói xong câu hỏi đó (turn_complete) → hiện nhóm nút #scanChoicePrompt
+KHI người dùng yêu cầu điền/tích BẤT KỲ trường nào — chung chung ("bạn điền giúp tôi
+đi") HAY chỉ rõ 1 trường cụ thể ("tích trường nơi sinh là trong nước")
+  → AI PHẢI gọi fill_form_fields (system_instruction cấm tuyệt đối tự nhận đã điền/tích
+    khi chưa gọi tool — vì log thật từng thấy AI hallucinate xác nhận "Đã tích..." mà
+    không hề gọi tool nào)
+  → callback nhận kèm user_buffer (câu nói của turn hiện tại, CHƯA kịp flush vào history
+    chính thức tại thời điểm tool-call xảy ra giữa turn) nối thêm vào transcript, để
+    _handle_ai_fill_fields thấy được đúng yêu cầu vừa nói
+  NẾU chưa có fields đã lưu (chưa từng scan_form_fields) → trả lỗi, AI báo cần quét trước
+  NGƯỢC LẠI
+    → nhờ text model so khớp fields + tỉnh/phường cố định + toàn bộ transcript
+    → CHỈ lấy field XÁC ĐỊNH CHẮC CHẮN giá trị (không suy đoán/bịa CCCD, ngày sinh...)
+    → gọi extension fill_field cho từng field theo field_type:
+      combobox → bấm mở danh sách, chọn option khớp text
+      choice_option → simulateClick thẳng vào selector, không mở gì
+      text → set qua native setter + fire input/change event
+    → trả tool_response {ok, filled, remaining} — AI tự nói đã điền được gì, còn thiếu gì
 
-  NẾU bấm [Tôi tự điền]
-    → chỉ gửi turn giả bảo AI giới thiệu qua trường quan trọng rồi dừng, KHÔNG tự điền
-
-  NẾU bấm [Nhờ AI nhập]
-    NẾU chưa có fields đã lưu → báo AI nói người dùng quét lại, DỪNG
-    NGƯỢC LẠI
-      → nhờ text model so khớp fields + tỉnh/phường cố định + toàn bộ transcript
-      → CHỈ lấy field XÁC ĐỊNH CHẮC CHẮN giá trị (không suy đoán/bịa CCCD, ngày sinh...)
-      → gọi extension fill_field cho từng field theo field_type:
-        combobox → bấm mở danh sách, chọn option khớp text
-        choice_option → simulateClick thẳng vào selector, không mở gì
-        text → set qua native setter + fire input/change event
-      → báo lại qua turn giả: đã điền được gì, còn thiếu gì
+  Cơ chế phát hiện AI nói dối: nếu turn_complete mà ai_buffer chứa "đã điền"/"đã tích"/
+  "đã chọn" nhưng turn đó KHÔNG có tool-call fill_form_fields nào → log submit_error
+  "ai_claimed_fill_without_tool_call" để phát hiện qua log (chưa có cách chặn cứng,
+  chỉ ghi nhận để theo dõi tần suất).
 ```
 
 Log chi tiết vào `data/logs/*.jsonl` cho từng bước, cả lúc bắt đầu lẫn khi xong (`scan_form_with_comboboxes_start/result`, `analyze_form_start`, `ai_fill_fields_start/decided`, `fill_field_start/done`).
+
+`background.js` tự nhận diện tab để quét/điền qua `ensureControlledTab()` (không bắt buộc phải đi qua `open_url_and_scan`/`findOrCreateTab` trước) — nếu `controlledTabId` chưa có hoặc tab đó đã đóng, tự tìm tab đang active thuộc `*.gov.vn`, rồi tới tab bất kỳ thuộc `*.gov.vn`, mới báo lỗi nếu không có tab nào cả. Cần thiết cho nút "Quét trang" (không đi qua luồng nộp hồ sơ trước) hoạt động trên bất kỳ tab `*.gov.vn` nào đang mở sẵn.
 
 **Bug đã biết, chưa fix**: combobox "Phường/Xã" là cascading dropdown, rỗng cho tới khi "Tỉnh/Thành phố" đã chọn — `scanFormWithComboboxes()` quét độc lập từng combobox nên dễ bỏ sót field Phường.
 
@@ -187,7 +200,8 @@ KHI người dùng bấm nút [Thành phần hồ sơ cần chuẩn bị] (#requ
   NGƯỢC LẠI
     → nhờ text model tóm tắt items dài dòng (giữ rõ số lượng/loại, bỏ trích dẫn luật)
     → ghi đè cache thành {"items": [], "summary": [...]} — xóa raw, chỉ giữ bản tóm tắt
-  → hiện list card (renderRequiredDocumentsCard, tái dùng .procedure-card)
+  → hiện list card (renderRequiredDocumentsCard) + bơm turn giả để AI tự đọc lại
+    ngắn gọn danh sách bằng giọng nói
 ```
 
 Đã khảo sát trước toàn bộ 319 thủ tục bằng Playwright (`scripts/survey_required_documents.py`, chạy ngoại tuyến, hỗ trợ `SURVEY_LIMIT` để test nhỏ) để cache có sẵn raw cho hầu hết thủ tục, tránh phải quét DOM qua extension mỗi lần.

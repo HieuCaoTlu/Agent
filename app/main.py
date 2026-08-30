@@ -83,7 +83,16 @@ async def _handle_scan_form_fields(
         fields = analysis.get("fields") or []
         session_state["last_scanned_fields"] = fields
         log.submit_action("scan_form_fields", {"fields_count": len(fields), "fields": fields})
-        return {"fields": fields}
+        # Chỉ trả label rút gọn cho Gemini Live (không phải selector/options đầy đủ) —
+        # tool_response quá dài (nhiều field, mỗi field kèm selector dài) từng gây lỗi
+        # 1011 Internal error từ Gemini Live. Bản đầy đủ đã lưu ở session_state phía trên.
+        _MAX_LABELS = 15
+        labels = [f.get("label", "") for f in fields]
+        return {
+            "fields_count": len(fields),
+            "sample_labels": labels[:_MAX_LABELS],
+            "truncated": len(labels) > _MAX_LABELS,
+        }
     except Exception as exc:
         log.submit_error("scan_form_fields", repr(exc))
         return {"error": str(exc)}
@@ -93,17 +102,16 @@ async def _handle_ai_fill_fields(
     websocket: WebSocket,
     history: list[tuple[str, str]],
     log: ConversationLogger,
-    inject_queue: asyncio.Queue,
     session_state: dict,
-) -> None:
+    pending_user_text: str = "",
+) -> dict:
     fields = session_state.get("last_scanned_fields") or []
     if not fields:
-        await inject_queue.put(
-            "Hệ thống chưa quét được thông tin trang hiện tại, hãy báo người dùng thử quét lại trang."
-        )
-        return
+        return {"ok": False, "message": "Chưa quét được thông tin trang hiện tại, cần quét lại trang trước."}
 
     transcript = "\n".join(f"{who}: {text}" for who, text in history)
+    if pending_user_text.strip():
+        transcript += f"\nNgười dùng: {pending_user_text.strip()}"
 
     def _field_line(f: dict) -> str:
         field_type = f.get("field_type", "text")
@@ -188,22 +196,24 @@ async def _handle_ai_fill_fields(
             log.submit_error("fill_field", repr(exc))
 
     remaining = [f["label"] for f in fields if f["label"] not in filled]
-    if filled:
-        message = "Đã tự điền xong: " + ", ".join(filled) + "."
-    else:
-        message = "Chưa điền được trường nào vì chưa đủ thông tin chắc chắn."
-    if remaining:
-        message += " Các trường còn lại cần người dùng tự điền: " + ", ".join(remaining) + "."
-    await inject_queue.put(
-        "Hệ thống đã cố gắng tự điền các trường đã biết. " + message + " Hãy thông báo ngắn gọn "
-        "cho người dùng và hỏi họ cần hỗ trợ gì thêm."
-    )
+    log.submit_action("ai_fill_fields_result", {"filled": filled, "remaining_count": len(remaining)})
+    # Rút gọn danh sách trả cho Gemini Live — với form nhiều trường (vd 57), remaining
+    # có thể rất dài và từng gây lỗi 500 InternalServerError từ Gemini Live khi turn quá dài.
+    _MAX_LIST = 15
+    return {
+        "ok": True,
+        "filled": filled[:_MAX_LIST],
+        "filled_count": len(filled),
+        "remaining_sample": remaining[:_MAX_LIST],
+        "remaining_count": len(remaining),
+    }
 
 
 async def _handle_get_required_documents(
     websocket: WebSocket,
     log: ConversationLogger,
     session_state: dict,
+    inject_queue: asyncio.Queue = None,
 ) -> None:
     log.submit_action("get_required_documents_start")
     await websocket.send_json({"type": "submit_procedure_status", "message": "Đang tóm tắt thành phần hồ sơ..."})
@@ -214,6 +224,23 @@ async def _handle_get_required_documents(
         session_state["required_documents"] = result
         log.submit_action("get_required_documents_done", {"summary_count": len(result.get("summary") or [])})
         await websocket.send_json({"type": "required_documents", "data": result})
+        if inject_queue is not None:
+            summary = result.get("summary") or []
+            if summary:
+                _MAX_ITEMS = 8
+                sample = "; ".join(summary[:_MAX_ITEMS])
+                suffix = f" (và {len(summary) - _MAX_ITEMS} giấy tờ khác)" if len(summary) > _MAX_ITEMS else ""
+                await inject_queue.put(
+                    f"Hệ thống vừa tra được {len(summary)} loại giấy tờ cần chuẩn bị, ví dụ: "
+                    f"{sample}{suffix}. Hãy đọc lại khái quát cho người dùng nghe (người dùng "
+                    "cũng đang nhìn thấy danh sách đầy đủ trên màn hình nên không cần đọc "
+                    "hết từng thứ)."
+                )
+            else:
+                await inject_queue.put(
+                    "Hệ thống không tìm thấy thông tin thành phần hồ sơ trên trang hiện "
+                    "tại, hãy báo người dùng biết điều này."
+                )
     except Exception as exc:
         log.submit_error("get_required_documents", repr(exc))
         await websocket.send_json(
@@ -417,11 +444,11 @@ async def voice_ws(websocket: WebSocket) -> None:
     async def on_scan_form_fields() -> dict:
         return await _handle_scan_form_fields(websocket, history, log, session_state)
 
-    def on_ai_fill_fields() -> None:
-        _track_task(_handle_ai_fill_fields(websocket, history, log, inject_queue, session_state))
+    async def on_ai_fill_fields(pending_user_text: str = "") -> dict:
+        return await _handle_ai_fill_fields(websocket, history, log, session_state, pending_user_text)
 
     def on_get_required_documents() -> None:
-        _track_task(_handle_get_required_documents(websocket, log, session_state))
+        _track_task(_handle_get_required_documents(websocket, log, session_state, inject_queue))
 
     try:
         await voice_provider.run_voice_session(

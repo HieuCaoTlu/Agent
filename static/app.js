@@ -3,16 +3,13 @@ const chatCard = document.getElementById('chatCard');
 const wave = document.getElementById('wave');
 const statusEl = document.getElementById('status');
 const startBtn = document.getElementById('startBtn');
-const testSubmitBtn = document.getElementById('testSubmitBtn');
+const testScanBtn = document.getElementById('testScanBtn');
 const stopBtn = document.getElementById('stopBtn');
 const talkBtn = document.getElementById('talkBtn');
 const submitPrompt = document.getElementById('submitPrompt');
 const autoSubmitBtn = document.getElementById('autoSubmitBtn');
 const cancelSubmitBtn = document.getElementById('cancelSubmitBtn');
 const retryBtn = document.getElementById('retryBtn');
-const scanChoicePrompt = document.getElementById('scanChoicePrompt');
-const aiFillBtn = document.getElementById('aiFillBtn');
-const manualFillBtn = document.getElementById('manualFillBtn');
 const postSubmitActions = document.getElementById('postSubmitActions');
 const triggerScanBtn = document.getElementById('triggerScanBtn');
 const requiredDocsBtn = document.getElementById('requiredDocsBtn');
@@ -155,7 +152,7 @@ function renderProcedureCard(data) {
 
 function renderRequiredDocumentsCard(data) {
   const card = document.createElement('div');
-  card.className = 'procedure-card';
+  card.className = 'procedure-card no-accent-border';
 
   const title = document.createElement('div');
   title.className = 'procedure-card-title';
@@ -288,13 +285,6 @@ function cancelAutoSubmit() {
   }
 }
 
-function chooseScanFill(choice) {
-  scanChoicePrompt.hidden = true;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'scan_fill_choice', choice }));
-  }
-}
-
 function triggerScanForm() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'trigger_scan_form' }));
@@ -313,8 +303,6 @@ function handleWsMessage(event) {
     playPcmChunk(msg.data);
   } else if (msg.type === 'show_submit_button') {
     startAutoSubmitCountdown();
-  } else if (msg.type === 'show_scan_choice_buttons') {
-    scanChoicePrompt.hidden = false;
   } else if (msg.type === 'show_scan_form_button') {
     postSubmitActions.hidden = false;
   } else if (msg.type === 'required_documents') {
@@ -380,7 +368,6 @@ async function start() {
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
-  scanChoicePrompt.hidden = true;
   postSubmitActions.hidden = true;
   retryBtn.hidden = true;
   isTalking = false;
@@ -414,25 +401,39 @@ async function start() {
   ws.onclose = () => resetUi();
 }
 
-function startSubmitTest(procedureName) {
+async function startScanTest() {
   idleCard.hidden = true;
   chatCard.hidden = false;
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
-  scanChoicePrompt.hidden = true;
-  postSubmitActions.hidden = true;
   retryBtn.hidden = true;
+  isTalking = false;
+  talkBtn.textContent = 'Nhấn để nói';
+  talkBtn.classList.remove('talking');
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
 
   ws = new WebSocket(`ws://${location.host}/ws`);
 
-  ws.onopen = () => {
-    const request = { type: 'submit_procedure', procedure_name: procedureName };
-    lastSubmitRequest = request;
-    statusEl.textContent = `Đang xử lý yêu cầu nộp hồ sơ: ${procedureName}...`;
-    ws.send(JSON.stringify(request));
+  ws.onopen = async () => {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new AudioContext();
+    await audioContext.audioWorklet.addModule('/worklet.js');
+
+    const source = audioContext.createMediaStreamSource(micStream);
+    workletNode = new AudioWorkletNode(audioContext, 'mic-processor');
+    workletNode.port.onmessage = (e) => {
+      if (!isTalking || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const resampled = resampleTo16k(e.data, audioContext.sampleRate);
+      const pcm = floatTo16BitPcm(resampled);
+      ws.send(JSON.stringify({ type: 'audio', data: toBase64(pcm) }));
+    };
+    source.connect(workletNode);
+
+    postSubmitActions.hidden = false;
+    statusEl.textContent = 'Đang quét trang để test...';
+    triggerScanForm();
   };
 
   ws.onmessage = handleWsMessage;
@@ -460,7 +461,6 @@ function resetUi() {
   lastSubmitRequest = null;
   stopAutoSubmitCountdown();
   submitPrompt.hidden = true;
-  scanChoicePrompt.hidden = true;
   postSubmitActions.hidden = true;
   finalizeTurn();
   setWaveState('idle');
@@ -499,12 +499,10 @@ stopBtn.onclick = stop;
 talkBtn.onclick = toggleTalking;
 autoSubmitBtn.onclick = submitProcedure;
 cancelSubmitBtn.onclick = cancelAutoSubmit;
-aiFillBtn.onclick = () => chooseScanFill('ai');
-manualFillBtn.onclick = () => chooseScanFill('manual');
 triggerScanBtn.onclick = triggerScanForm;
 requiredDocsBtn.onclick = requestRequiredDocuments;
 retryBtn.onclick = retry;
-testSubmitBtn.onclick = () => startSubmitTest('Đăng ký khai sinh');
+testScanBtn.onclick = startScanTest;
 
 document.addEventListener('keydown', (e) => {
   if ((e.key !== 'Enter' && e.key !== ' ' && e.code !== 'Space') || chatCard.hidden) return;

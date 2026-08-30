@@ -143,10 +143,30 @@ function waitForTabLoad(tabId) {
   });
 }
 
-async function sendToContentScript(action, payload) {
-  if (controlledTabId === null) {
-    throw new Error('Chưa có tab dichvucong.gov.vn nào đang được điều khiển.');
+async function ensureControlledTab() {
+  if (controlledTabId !== null) {
+    try {
+      await chrome.tabs.get(controlledTabId);
+      return controlledTabId;
+    } catch (err) {
+      controlledTabId = null;
+    }
   }
+  const activeTabs = await chrome.tabs.query({ active: true, url: TARGET_URL_PATTERN });
+  if (activeTabs.length > 0) {
+    controlledTabId = activeTabs[0].id;
+    return controlledTabId;
+  }
+  const anyTabs = await chrome.tabs.query({ url: TARGET_URL_PATTERN });
+  if (anyTabs.length > 0) {
+    controlledTabId = anyTabs[0].id;
+    return controlledTabId;
+  }
+  throw new Error('Không tìm thấy tab nào thuộc *.gov.vn đang mở — hãy mở trang trước.');
+}
+
+async function sendToContentScript(action, payload) {
+  await ensureControlledTab();
   let attemptError;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -160,9 +180,7 @@ async function sendToContentScript(action, payload) {
 }
 
 async function getAllFrameIds() {
-  if (controlledTabId === null) {
-    throw new Error('Chưa có tab dichvucong.gov.vn nào đang được điều khiển.');
-  }
+  await ensureControlledTab();
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId: controlledTabId });
     return frames.map((f) => f.frameId);

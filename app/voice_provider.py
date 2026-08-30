@@ -14,6 +14,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_VOICE_MODEL = os.environ.get("GEMINI_VOICE_MODEL", "gemini-2.5-flash-native-audio-latest")
+GEMINI_VOICE_NAME = os.environ.get("GEMINI_VOICE_NAME", "Kore")
 AUTO_GREET = os.environ.get("AUTO_GREET", "false").strip().lower() in ("1", "true", "yes")
 
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -29,11 +30,27 @@ _SCAN_FORM_FIELDS_DECL = types.FunctionDeclaration(
     parameters={"type": "OBJECT", "properties": {}},
 )
 
+_FILL_FORM_FIELDS_DECL = types.FunctionDeclaration(
+    name="fill_form_fields",
+    description=(
+        "Tự động điền/tích chọn các trường đã quét được (bằng scan_form_fields) "
+        "vào form trên trang hiện tại, dựa trên thông tin đã biết chắc chắn từ "
+        "cuộc trò chuyện. PHẢI gọi công cụ này mỗi khi người dùng yêu cầu điền, "
+        "nhập, hoặc tích/chọn BẤT KỲ trường nào — dù là yêu cầu chung chung "
+        "('bạn điền giúp tôi đi') hay yêu cầu một trường cụ thể ('tích trường "
+        "nơi sinh là trong nước', 'điền tên tôi vào'). KHÔNG BAO GIỜ được nói "
+        "là đã điền/đã tích một trường nếu chưa thực sự gọi công cụ này và "
+        "nhận kết quả xác nhận — phải đã gọi scan_form_fields trước đó trong "
+        "cùng phiên."
+    ),
+    parameters={"type": "OBJECT", "properties": {}},
+)
+
 LIVE_CONFIG = types.LiveConnectConfig(
     response_modalities=[types.Modality.AUDIO],
     system_instruction=(
-        "Bạn là một trợ lý giọng nói thân thiện, trả lời bằng tiếng Việt, "
-        "ngắn gọn, tự nhiên như đang trò chuyện trực tiếp. "
+        "Bạn là một trợ lý giọng nói nữ, nghiêm túc, chuyên nghiệp, trả lời "
+        "bằng tiếng Việt, ngắn gọn, tự nhiên như đang trò chuyện trực tiếp. "
         "Luôn mở đầu cuộc trò chuyện bằng đúng câu: 'Tôi là trợ lý giọng nói "
         "ảo của Phường Yên Sở, bạn muốn hỗ trợ thủ tục hành chính nào?' "
         f"Người dùng đang cư trú tại {SUBMIT_WARD}, {SUBMIT_PROVINCE} — nếu "
@@ -47,16 +64,29 @@ LIVE_CONFIG = types.LiveConnectConfig(
         "cần nhắc lại tên phường/thành phố lúc này (đã nói ở đầu cuộc trò "
         "chuyện nếu cần). Sau khi người dùng đã đăng nhập và đang ở màn hình "
         "điền hồ sơ thật, nếu người dùng hỏi cần làm gì tiếp hoặc muốn quét "
-        "trang, hãy gọi công cụ scan_form_fields rồi dựa vào kết quả trả về "
-        "để tóm tắt ngắn gọn các trường cần điền, sau đó hỏi người dùng có "
-        "muốn nhờ bạn tự điền hay tự điền lấy."
+        "trang, hãy gọi công cụ scan_form_fields — kết quả trả về có thể chỉ là "
+        "số lượng và vài trường mẫu (form dài không liệt kê hết), hãy tóm tắt "
+        "khái quát chứ không cần đọc hết từng trường. Sau đó, BẤT KỲ khi nào "
+        "người dùng yêu cầu điền/nhập/tích/chọn một hoặc nhiều trường — dù nói "
+        "chung chung ('bạn điền giúp tôi đi') hay chỉ rõ 1 trường cụ thể ('tích "
+        "trường nơi sinh là trong nước') — hãy LUÔN gọi công cụ fill_form_fields "
+        "trước, KHÔNG được tự trả lời là đã điền/đã tích khi chưa gọi công cụ "
+        "này. Kết quả trả về có filled_count/remaining_count (số lượng) và chỉ "
+        "vài ví dụ mẫu (form dài không liệt kê hết) — chỉ dựa vào đó để nói cho "
+        "người dùng biết đã điền được bao nhiêu, còn thiếu gì, không suy đoán "
+        "hay tự nhận là đã làm xong khi chưa có kết quả thật."
     ),
     input_audio_transcription=types.AudioTranscriptionConfig(),
     output_audio_transcription=types.AudioTranscriptionConfig(),
+    speech_config=types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=GEMINI_VOICE_NAME)
+        )
+    ),
     realtime_input_config=types.RealtimeInputConfig(
         automatic_activity_detection=types.AutomaticActivityDetection(disabled=True)
     ),
-    tools=[types.Tool(function_declarations=[_SCAN_FORM_FIELDS_DECL])],
+    tools=[types.Tool(function_declarations=[_SCAN_FORM_FIELDS_DECL, _FILL_FORM_FIELDS_DECL])],
 )
 
 async def run_voice_session(
@@ -70,7 +100,7 @@ async def run_voice_session(
     inject_queue: asyncio.Queue,
 ) -> None:
     async with _gemini_client.aio.live.connect(model=GEMINI_VOICE_MODEL, config=LIVE_CONFIG) as session:
-        state = {"suppress_show_submit": False, "pending_scan_prompt": False}
+        state = {"suppress_show_submit": False}
 
         async def inject_text(text: str, suppress_show_submit: bool = False, silent: bool = False) -> None:
             state["suppress_show_submit"] = suppress_show_submit
@@ -106,15 +136,6 @@ async def run_voice_session(
                     await inject_text("Tôi chưa muốn nộp hồ sơ ngay bây giờ, hãy hỏi tôi cần hỗ trợ gì thêm.")
                 elif msg_type == "request_required_documents":
                     on_get_required_documents()
-                elif msg_type == "scan_fill_choice":
-                    choice = message.get("choice")
-                    if choice == "ai":
-                        on_ai_fill_fields()
-                    else:
-                        await inject_text(
-                            "Tôi muốn tự điền lấy, hãy giới thiệu qua các trường quan trọng cần "
-                            "điền rồi để tôi tự nhập, cần hỗ trợ gì thêm tôi sẽ hỏi tiếp."
-                        )
                 elif msg_type == "trigger_scan_form":
                     result = await on_scan_form_fields()
                     if result.get("error"):
@@ -125,20 +146,23 @@ async def run_voice_session(
                             suppress_show_submit=True,
                         )
                     else:
+                        count = result.get("fields_count", 0)
+                        sample = result.get("sample_labels") or []
+                        suffix = " (và một số trường khác)" if result.get("truncated") else ""
                         await inject_text(
-                            "Hệ thống vừa quét xong trang hiện tại theo yêu cầu người dùng. Dựa "
-                            f"vào các trường sau: {result.get('fields')} — hãy tóm tắt ngắn gọn "
-                            "các trường cần điền rồi hỏi người dùng có muốn nhờ bạn tự điền hay "
-                            "tự điền lấy.",
+                            "Hệ thống vừa quét xong trang hiện tại theo yêu cầu người dùng, tìm "
+                            f"thấy {count} trường cần điền, ví dụ: {', '.join(sample)}{suffix}. Hãy "
+                            "tóm tắt ngắn gọn cho người dùng nghe (không cần đọc hết từng trường "
+                            "nếu số lượng nhiều, chỉ cần nói khái quát các nhóm thông tin).",
                             suppress_show_submit=True,
                         )
-                        state["pending_scan_prompt"] = True
                 elif msg_type == "stop":
                     return
 
         async def to_browser() -> None:
             user_buffer = ""
             ai_buffer = ""
+            fill_tool_called_this_turn = False
             while True:
                 async for chunk in session.receive():
                     if chunk.data:
@@ -149,12 +173,16 @@ async def run_voice_session(
                         for call in chunk.tool_call.function_calls:
                             if call.name == "scan_form_fields":
                                 result = await on_scan_form_fields()
-                                await session.send_tool_response(
-                                    function_responses=[
-                                        types.FunctionResponse(id=call.id, name=call.name, response=result)
-                                    ]
-                                )
-                                state["pending_scan_prompt"] = True
+                            elif call.name == "fill_form_fields":
+                                result = await on_ai_fill_fields(user_buffer)
+                                fill_tool_called_this_turn = True
+                            else:
+                                result = {"error": f"Không hỗ trợ công cụ: {call.name}"}
+                            await session.send_tool_response(
+                                function_responses=[
+                                    types.FunctionResponse(id=call.id, name=call.name, response=result)
+                                ]
+                            )
                     content = chunk.server_content
                     if content and content.input_transcription and content.input_transcription.text:
                         text = content.input_transcription.text
@@ -179,10 +207,15 @@ async def run_voice_session(
                             "nộp" in user_buffer.lower() or "nộp" in ai_buffer.lower()
                         ):
                             await websocket.send_json({"type": "show_submit_button"})
-                        if state["pending_scan_prompt"]:
-                            await websocket.send_json({"type": "show_scan_choice_buttons"})
+                        if not fill_tool_called_this_turn and any(
+                            kw in ai_buffer.lower() for kw in ("đã điền", "đã tích", "đã chọn")
+                        ):
+                            log.submit_error(
+                                "ai_claimed_fill_without_tool_call",
+                                f"AI nói đã điền/tích nhưng không gọi fill_form_fields trong turn này: {ai_buffer}",
+                            )
                         state["suppress_show_submit"] = False
-                        state["pending_scan_prompt"] = False
+                        fill_tool_called_this_turn = False
                         await websocket.send_json({"type": "turn_complete"})
                         if user_buffer:
                             log.user_transcript(user_buffer)
