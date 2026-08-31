@@ -189,6 +189,16 @@ async function getAllFrameIds() {
   }
 }
 
+async function getAllFramesWithUrl() {
+  await ensureControlledTab();
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId: controlledTabId });
+    return frames.map((f) => ({ frameId: f.frameId, url: f.url }));
+  } catch (err) {
+    return [{ frameId: 0, url: '' }];
+  }
+}
+
 async function sendToFrame(frameId, action, payload) {
   let attemptError;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -202,13 +212,17 @@ async function sendToFrame(frameId, action, payload) {
   throw attemptError;
 }
 
+const EFORM_HOST = 'tokhaidientu.moj.gov.vn';
+
 async function scanAllFramesWithComboboxes() {
-  const frameIds = await getAllFrameIds();
+  const frames = await getAllFramesWithUrl();
   const results = [];
-  for (const frameId of frameIds) {
+  for (const { frameId, url } of frames) {
+    const isEform = url && url.includes(EFORM_HOST);
     try {
-      const result = await sendToFrame(frameId, 'scan_form_with_comboboxes', {});
-      if (result && !result.error) results.push({ frameId, ...result });
+      const action = isEform ? 'scan_eform_fields' : 'scan_form_with_comboboxes';
+      const result = await sendToFrame(frameId, action, {});
+      if (result && !result.error) results.push({ frameId, isEform, ...result });
     } catch (err) {
       // frame này không có content script hợp lệ hoặc không phản hồi kịp, bỏ qua
     }
@@ -248,9 +262,21 @@ async function handleCommand(message) {
       if (frameResults.length === 0) {
         throw new Error('Không quét được frame nào trên trang hiện tại.');
       }
-      const html = frameResults.map((r) => r.html).join('\n<!-- frame -->\n');
-      const combobox_options = frameResults.flatMap((r) => r.combobox_options || []);
-      return { html, url: frameResults[0].url, combobox_options, frame_count: frameResults.length };
+      const htmlFrames = frameResults.filter((r) => !r.isEform);
+      const eformFrames = frameResults.filter((r) => r.isEform);
+      const html = htmlFrames.map((r) => r.html).join('\n<!-- frame -->\n');
+      const combobox_options = htmlFrames.flatMap((r) => r.combobox_options || []);
+      // eform_fields: form hộ tịch (tokhaidientu.moj.gov.vn) đã tự trích sẵn
+      // field_type (t/s/d/a/c/r) + title context — KHÔNG cần AI đoán từ HTML thô
+      // như các trường dichvucong.gov.vn thường, xử lý riêng ở dom_ai.analyze_form.
+      const eform_fields = eformFrames.flatMap((r) => r.fields || []);
+      return {
+        html,
+        url: frameResults[0].url,
+        combobox_options,
+        eform_fields,
+        frame_count: frameResults.length,
+      };
     }
     case 'click_selector': {
       const result = await sendToContentScript('click_selector', { selector: message.selector });

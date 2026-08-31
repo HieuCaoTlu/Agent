@@ -1,0 +1,119 @@
+.docs-card { max-width: 720px; }
+
+#searchInput {
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#procedureList { display: flex; flex-direction: column; gap: 8px; }
+
+.doc-item {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.doc-item-header {
+  width: 100%;
+  background: var(--bg-primary);
+  border: none;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.doc-item-header:hover { background: var(--bg-secondary); }
+
+.doc-item-name { font-weight: 700; color: var(--text-primary); font-size: 14px; }
+.doc-item-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.badge-ok { background: #e6f4ea; color: #2f7d3c; }
+
+.doc-item-body {
+  padding: 14px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.doc-loading { font-size: 13px; color: var(--text-secondary); }
+
+.doc-summary h3,
+.doc-full h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--color-secondary);
+}
+.doc-summary ul,
+.doc-full ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doc-summary li {
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.doc-full li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+.doc-full .item-name { color: var(--text-primary); }
+.doc-full .item-qty { flex-shrink: 0; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+
+.summarize-btn {
+  width: fit-content;
+  background: var(--color-primary);
+  color: white;
+  font-size: 13px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.summarize-btn:hover { background: var(--color-secondary); }
+.summarize-btn:disabled { opacity: 0.6; cursor: default; }
+.summarize-status { font-size: 12px; color: var(--text-secondary); }
+
+.doc-item-body > a {
+  align-self: flex-start;
+  color: var(--color-primary);
+  font-size: 12px;
+}

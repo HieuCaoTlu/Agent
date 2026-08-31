@@ -16,7 +16,9 @@ load_dotenv()
 # sống sót qua restart (bắt buộc nếu chạy nhiều worker process).
 JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
-JWT_TTL_SECONDS = 24 * 3600
+# Không đặt "exp" — token không tự hết hạn theo thời gian (đăng nhập 1 lần là
+# xong). Thu hồi quyền chỉ có thể qua admin xóa username (verify_token luôn
+# đối chiếu lại danh sách username hợp lệ hiện tại, không chỉ tin chữ ký).
 
 _USERS_PATH = Path("data/allowed_users.json")
 
@@ -58,8 +60,7 @@ def is_valid_username(username: str) -> bool:
 
 
 def issue_token(username: str) -> str:
-    now = int(time.time())
-    payload = {"sub": username, "iat": now, "exp": now + JWT_TTL_SECONDS}
+    payload = {"sub": username, "iat": int(time.time())}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
@@ -70,4 +71,7 @@ def verify_token(token: str | None) -> str | None:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
-    return payload.get("sub")
+    username = payload.get("sub")
+    if not username or not is_valid_username(username):
+        return None
+    return username

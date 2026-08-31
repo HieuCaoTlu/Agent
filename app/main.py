@@ -93,6 +93,7 @@ async def _handle_scan_form_fields(
         await websocket.send_json({"type": "submit_procedure_status", "message": "Đang quét trang hiện tại..."})
         page = await extension_manager.send_command("scan_form_with_comboboxes", {}, timeout=60.0)
         combobox_options = page.get("combobox_options") or []
+        eform_fields = page.get("eform_fields") or []
         log.submit_action(
             "scan_form_with_comboboxes_result",
             {
@@ -100,13 +101,20 @@ async def _handle_scan_form_fields(
                 "html_length": len(page.get("html") or ""),
                 "combobox_count": len(combobox_options),
                 "combobox_options": combobox_options,
+                "eform_fields_count": len(eform_fields),
             },
         )
 
-        log.submit_action("analyze_form_start")
-        await websocket.send_json({"type": "submit_procedure_status", "message": "Đang phân tích các trường cần điền..."})
-        analysis = await dom_ai.analyze_form(page["html"], combobox_options)
-        fields = analysis.get("fields") or []
+        # eform_fields (form hộ tịch tokhaidientu.moj.gov.vn) đã tự trích sẵn
+        # field_type/title từ content_script.js — dùng thẳng, không cần AI đoán
+        # lại từ HTML thô. Chỉ gọi AI cho phần HTML còn lại (nếu có, thường là
+        # trang dichvucong.gov.vn thường không phải form hộ tịch).
+        fields = [dom_ai.eform_field_to_scan_field(f) for f in eform_fields]
+        if (page.get("html") or "").strip():
+            log.submit_action("analyze_form_start")
+            await websocket.send_json({"type": "submit_procedure_status", "message": "Đang phân tích các trường cần điền..."})
+            analysis = await dom_ai.analyze_form(page["html"], combobox_options)
+            fields.extend(analysis.get("fields") or [])
         session_state["last_scanned_fields"] = fields
         log.submit_action("scan_form_fields", {"fields_count": len(fields), "fields": fields})
         # Chỉ trả label rút gọn cho Gemini Live (không phải selector/options đầy đủ) —
@@ -143,14 +151,16 @@ async def _handle_ai_fill_fields(
         field_type = f.get("field_type", "text")
         line = f'- selector="{f["selector"]}" label="{f["label"]}" field_type="{field_type}"'
         options = f.get("options")
-        if field_type == "combobox" and options:
+        if field_type in ("combobox", "a", "s") and options:
             line += f' (CHỈ được chọn value đúng 1 trong các lựa chọn thật sau: {", ".join(options)})'
-        elif field_type == "choice_option":
+        elif field_type in ("choice_option", "r"):
             line += (
                 ' (đây là MỘT lựa chọn cụ thể trong nhóm radio/checkbox — nếu muốn chọn '
                 'lựa chọn này thì trả về value="chọn", không cần trả về field khác cùng '
                 'nhóm mà không muốn chọn)'
             )
+        elif field_type == "d":
+            line += ' (ngày tháng năm — value trả về dạng "dd/mm/yyyy")'
         return line
 
     fields_text = "\n".join(_field_line(f) for f in fields)
@@ -182,12 +192,15 @@ async def _handle_ai_fill_fields(
         "tin tỉnh/phường ở trên hoặc từ những gì người dùng đã tự nói ra "
         "trong hội thoại) — KHÔNG suy đoán hay bịa giá trị cho các trường "
         "còn lại (họ tên, CCCD, ngày sinh... nếu người dùng chưa từng nói). "
-        "Với field_type là combobox có ghi kèm danh sách lựa chọn thật, value "
-        "trả về PHẢI là một trong các lựa chọn đó nguyên văn, không được viết "
-        "khác đi. Với field_type là choice_option, mỗi selector là MỘT lựa "
-        "chọn cụ thể trong nhóm radio/checkbox — chỉ trả về đúng field muốn "
-        "bấm chọn (value ghi \"chọn\"), không trả về các field khác cùng "
-        "nhóm mà không muốn chọn."
+        "Với field_type là combobox/a/s (dropdown) có ghi kèm danh sách lựa "
+        "chọn thật, value trả về PHẢI là một trong các lựa chọn đó nguyên "
+        "văn, không được viết khác đi. Với field_type là choice_option/r "
+        "(MỘT lựa chọn cụ thể trong nhóm radio/checkbox), mỗi selector là "
+        "MỘT lựa chọn — chỉ trả về đúng field muốn bấm chọn (value ghi "
+        "\"chọn\"), không trả về các field khác cùng nhóm mà không muốn "
+        "chọn. Với field_type là d (ngày tháng năm), value trả về đúng "
+        "dạng \"dd/mm/yyyy\". Với field_type là t (nhập chữ/số tự do), "
+        "value là chuỗi ký tự cần điền."
     )
     log.submit_action("ai_fill_fields_start", {"fields_count": len(fields)})
     await websocket.send_json({"type": "submit_procedure_status", "message": "Đang xác định giá trị cần điền..."})
@@ -391,6 +404,9 @@ async def _attempt_submit_procedure(
         )
         log.submit_action("run_fixed_submit_flow_done", flow_result)
 
+        if session_state is not None:
+            session_state["submitted_procedure_name"] = procedure_name
+
         done_message = (
             "Đã điền sẵn tỉnh/phường. Vui lòng tự bấm \"Nộp trực tuyến\" và đăng nhập để bắt đầu nộp."
         )
@@ -481,6 +497,28 @@ async def voice_ws(websocket: WebSocket) -> None:
     def on_get_required_documents() -> None:
         _track_task(_handle_get_required_documents(websocket, log, session_state, inject_queue))
 
+    async def on_propose_submit(procedure_name: str | None) -> dict:
+        submitted = session_state.get("submitted_procedure_name")
+        if not submitted:
+            return {"ok": True}
+
+        # AI không chắc/không truyền tên — tự trích từ lịch sử hội thoại để so
+        # sánh, tránh chặn nhầm khi người dùng thực ra đang đổi sang thủ tục khác.
+        if not procedure_name:
+            procedure_name = await _extract_procedure_name(history)
+
+        if procedure_name and procedure_name.strip().lower() != submitted.strip().lower():
+            return {"ok": True}
+
+        return {
+            "ok": False,
+            "reason": (
+                f"Đã đề nghị nộp hồ sơ cho thủ tục \"{submitted}\" trong phiên này rồi — "
+                "không cần đề nghị lại, nếu người dùng muốn đổi sang thủ tục khác hãy nói "
+                "rõ tên thủ tục mới khi gọi lại công cụ này."
+            ),
+        }
+
     try:
         await voice_provider.run_voice_session(
             websocket,
@@ -490,6 +528,7 @@ async def voice_ws(websocket: WebSocket) -> None:
             on_scan_form_fields,
             on_ai_fill_fields,
             on_get_required_documents,
+            on_propose_submit,
             inject_queue,
         )
     finally:
@@ -528,6 +567,37 @@ async def extension_ws(websocket: WebSocket) -> None:
 @app.get("/procedures")
 async def list_procedures() -> list[dict]:
     return get_routing_index()
+
+
+@app.get("/required-documents")
+async def list_required_documents() -> list[dict]:
+    cache = required_documents.list_all()
+    return [
+        {
+            "name": name,
+            "href": entry.get("href"),
+            "items_count": len(entry.get("items") or []),
+            "has_summary": bool(entry.get("summary")),
+        }
+        for name, entry in cache.items()
+    ]
+
+
+@app.get("/required-documents/{name}")
+async def get_required_documents_detail(name: str) -> dict:
+    entry = required_documents.get_cached(name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thủ tục.")
+    return {"name": name, **entry}
+
+
+@app.post("/required-documents/{name}/summarize")
+async def summarize_required_documents(name: str) -> dict:
+    entry = required_documents.get_cached(name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thủ tục.")
+    result = await required_documents.summarize(name, known_url=entry.get("href"))
+    return {"name": name, **result}
 
 
 @app.delete("/procedures/{slug}")
@@ -602,7 +672,6 @@ async def auth_login(body: AuthLoginRequest, request: Request) -> dict:
     return {
         "ok": True,
         "token": token,
-        "expires_in_seconds": auth.JWT_TTL_SECONDS,
         "web_link": web_link,
         "extension_url": extension_url,
     }

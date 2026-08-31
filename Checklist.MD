@@ -75,7 +75,7 @@ Nút "Bắt đầu hỗ trợ" (`#startBtn`) → mở `/ws`, chuyển sang màn 
 
 Luôn có: sóng âm + dòng trạng thái (`#status`), khung transcript (`#chatLog`), nút "Nhấn để nói"/"Đang nói..." (`#talkBtn`, push-to-talk — phím Enter/Space cũng bật/tắt được, có `e.repeat` guard), nút "Kết thúc hỗ trợ" (`#stopBtn`). Mọi `submit_procedure_status`/`submit_procedure_done` từ backend vừa cập nhật `#status` vừa thêm 1 bubble `.bubble.system` (viền nét đứt, căn trái) vào `#chatLog` để thấy tiến trình theo dõi được ("Đang quét trang...", "Đang điền \"...\"...").
 
-**Nhóm nút nộp hồ sơ** (`#submitPrompt`, ẩn mặc định): hiện khi AI nói có ý "nộp hồ sơ" (turn chứa từ "nộp", không phải turn hệ thống tự bơm) — 2 nút [Tự động nộp (đếm ngược 3s)] [Hủy nộp]. Hết 3s hoặc bấm [Tự động nộp] → gọi `submit_procedure`; bấm [Hủy nộp] → dừng đếm, gửi turn giả "chưa muốn nộp" để AI tự hỏi lại. Nút "Thử lại" (`#retryBtn`, ẩn mặc định) hiện khi nộp lỗi hẳn (hết 3 lần tự động retry) — gửi lại đúng request cuối trên cùng WebSocket nếu còn sống.
+**Nhóm nút nộp hồ sơ** (`#submitPrompt`, ẩn mặc định): hiện khi AI gọi tool-call `propose_submit_procedure` (KHÔNG còn string-match từ "nộp" trong text — từng gây bug AI tự kích hoạt luồng nộp chỉ vì nhắc tới từ "nộp" trong câu giải thích khác, ví dụ user hỏi "giới thiệu qua thành phần cần nộp" cũng vô tình bật đếm ngược) — 2 nút [Tự động nộp (đếm ngược 3s)] [Hủy nộp]. Hết 3s hoặc bấm [Tự động nộp] → gọi `submit_procedure`; bấm [Hủy nộp] → dừng đếm, gửi turn giả "chưa muốn nộp" để AI tự hỏi lại. Nút "Thử lại" (`#retryBtn`, ẩn mặc định) hiện khi nộp lỗi hẳn (hết 3 lần tự động retry) — gửi lại đúng request cuối trên cùng WebSocket nếu còn sống.
 
 **Nhóm nút sau khi vào trang form thật** (`#postSubmitActions`, ẩn mặc định): hiện cùng lúc `submit_procedure_done` (sau khi `run_fixed_submit_flow` xong) — không tự ẩn, bấm lại được nhiều lần:
 - **"Quét trang"** (`#triggerScanBtn`) → gửi `trigger_scan_form`, xử lý y hệt tool-call `scan_form_fields` của AI (xem mục quét form bên dưới) nhưng khởi phát từ UI thay vì giọng nói.
@@ -118,6 +118,30 @@ System instruction (`voice_provider.py`): mở đầu bằng câu "Tôi là tr�
 
 Giọng đọc cố định qua `speech_config` (`GEMINI_VOICE_NAME` trong `.env`, mặc định `"Kore"`) — trước đây không set nên Gemini Live tự chọn giọng ngẫu nhiên mỗi phiên. Danh sách 30 giọng có sẵn ghi trong `.env`; tài liệu chính thức không công bố giới tính/vùng miền từng giọng, chỉ có mô tả tính cách ngắn (Kore = "Firm").
 
+System instruction có thêm đoạn dạy AI tự giới thiệu bản thân khi người dùng hỏi "bạn làm được gì"/"giúp gì được cho tôi" — trả lời tự nhiên, không liệt kê máy móc.
+
+## Nghiệp vụ: đề nghị nộp hồ sơ (tool `propose_submit_procedure`)
+
+Tool riêng (3 tool tổng cộng cùng `scan_form_fields`/`fill_form_fields`) — AI gọi khi nó thực sự có ý định đề nghị mở trang nộp hồ sơ. Description/system_instruction cố tình viết KHÔNG literal kiểu "gọi công cụ X ngay lúc nói câu Y" — từng khiến model native-audio "đọc ra" cú pháp gọi hàm thành lời/transcript thay vì thực sự trigger function-calling (bug quan sát được: AI nói ra nguyên văn `propose_submit_procedure{}` trong transcript thay vì gọi tool thật). Cách diễn đạt đúng: mô tả tool làm gì (hiện nút xác nhận), dặn AI nói tự nhiên rồi gọi tool "ở phía sau, không hiển thị trong lời nói" — giống cách `fill_form_fields`/`scan_form_fields` vốn không gặp lỗi này.
+
+Tool có tham số optional `procedure_name` (STRING) — AI tự điền nếu biết chắc đang đề nghị nộp thủ tục nào từ ngữ cảnh hội thoại, để trống nếu không chắc. Tránh được việc phải gọi lại Gemini text (`_extract_procedure_name`) mỗi lần chỉ để so sánh tên.
+
+`to_browser()` (`voice_provider.py`) gọi `await on_propose_submit(procedure_name)` (async, `main.py`) mỗi khi nhận tool-call:
+```
+NẾU session_state["submitted_procedure_name"] chưa có (chưa từng submit trong phiên)
+  → cho phép luôn ({"ok": true})
+NGƯỢC LẠI (đã submit 1 thủ tục rồi)
+  NẾU AI không truyền procedure_name → tự trích qua _extract_procedure_name(history) (fallback,
+    duy nhất chỗ tốn thêm 1 lần gọi AI trong luồng này)
+  NẾU tên (AI truyền hoặc tự trích) khác submitted_procedure_name (so sánh case-insensitive)
+    → cho phép ({"ok": true}) — đổi sang thủ tục khác vẫn đề nghị lại được bình thường
+  NGƯỢC LẠI (cùng thủ tục hoặc không xác định được tên nào khác)
+    → chặn ({"ok": false, "reason": "..."}) — AI được báo lý do, tự giải thích cho người dùng
+```
+`ok: true` mới set cờ `submit_proposed_this_turn`, cuối turn (`turn_complete`) gửi `show_submit_button` cho frontend nếu cờ bật VÀ không bị `suppress_show_submit` (turn hệ thống tự bơm). `submitted_procedure_name` (`session_state`) được set/ghi đè trong `_attempt_submit_procedure` (`main.py`) ngay sau `run_fixed_submit_flow` thành công — guard này chỉ chặn AI tự ý lặp lại đề nghị nộp cho ĐÚNG thủ tục vừa xử lý, không chặn hành động submit thật (nút bấm) hay việc chuyển sang thủ tục khác.
+
+Thay thế hoàn toàn cơ chế cũ (string-match từ "nộp" trong `user_buffer`/`ai_buffer`) — cơ chế cũ từng gây bug: AI chỉ đang giải thích/liệt kê ("...thành phần cần nộp...") cũng vô tình bật đếm ngược tự động nộp 3s.
+
 ## Nghiệp vụ: quét form và tự điền (Gemini Live function calling)
 
 Chỗ duy nhất dùng function calling thật của Gemini Live (`types.Tool`, 2 hàm: `scan_form_fields`, `fill_form_fields`) — khác `submit_procedure` vốn chỉ dựa vào nút bấm + so khớp keyword. Không còn nút bấm chọn cách điền — AI tự quyết định gọi `fill_form_fields` khi người dùng nói rõ ý muốn được điền hộ (vd "bạn điền giúp tôi đi").
@@ -144,7 +168,13 @@ hoặc bấm nút "Quét trang" (#triggerScanBtn)
     PHẢI dùng selector [data-scan-field-id="..."] và options đúng danh sách thật đã bấm
     mở, không tự bịa), hoặc "choice_option" (MỘT lựa chọn cụ thể trong nhóm radio/checkbox
     đã hiển thị sẵn, vd <x-radio> — selector trỏ thẳng vào lựa chọn con, không phải cả nhóm)
-  → lưu fields vào session_state (theo phiên); kết quả trả về Gemini qua tool_response
+  → NẾU 1 trong các frame là tokhaidientu.moj.gov.vn (form hộ tịch điện tử — Bộ Tư pháp,
+    khác hẳn combobox custom của dichvucong.gov.vn) → background.js route riêng qua
+    scan_eform_fields (xem mục "Form hộ tịch điện tử" bên dưới), field_type đã có sẵn
+    (t/s/d/a/c/r), KHÔNG cần AI đoán — dom_ai.eform_field_to_scan_field() convert format,
+    chỉ gọi AI (analyze_form) cho phần HTML còn lại nếu có
+  → lưu fields vào session_state (theo phiên) — GỘP cả 2 nguồn (eform_fields đã convert +
+    AI-analyzed fields) vào cùng 1 danh sách; kết quả trả về Gemini qua tool_response
     khi do AI tự gọi, hoặc gói gọn trong 1 turn giả ngắn (chỉ số lượng + label, KHÔNG bơm
     nguyên field list dạng Python repr vào text — từng gây lỗi 1011 Internal error từ
     Gemini Live vì payload quá dài/sai định dạng) khi do nút bấm
@@ -163,10 +193,64 @@ KHI người dùng yêu cầu điền/tích BẤT KỲ trường nào — chung 
     → nhờ text model so khớp fields + tỉnh/phường cố định + toàn bộ transcript
     → CHỈ lấy field XÁC ĐỊNH CHẮC CHẮN giá trị (không suy đoán/bịa CCCD, ngày sinh...)
     → gọi extension fill_field cho từng field theo field_type:
-      combobox → bấm mở danh sách, chọn option khớp text
-      choice_option → simulateClick thẳng vào selector, không mở gì
-      text → set qua native setter + fire input/change event
+      combobox → bấm mở danh sách, chọn option khớp text (dichvucong.gov.vn)
+      choice_option/r → simulateClick thẳng vào selector, không mở gì
+      text/t → set qua native setter + fire input/change event (t: input con nằm
+        trong custom element x-input, tìm querySelector('input') trước)
+      d → x-date: value "dd/mm/yyyy" hoặc "yyyy-mm-dd", tách 3 ô con input[name$="-day"/
+        "-month"/"-year"] set riêng từng ô
+      a/s → x-select: vẫn phải bấm mở dropdown thật rồi chọn (không có input ẩn set trực
+        tiếp được) — "a" chỉ khác "s" ở chỗ đã biết trước options thật qua API lúc quét,
+        không tự đổi được cách điền
     → trả tool_response {ok, filled, remaining} — AI tự nói đã điền được gì, còn thiếu gì
+
+## Nghiệp vụ: form hộ tịch điện tử (tokhaidientu.moj.gov.vn)
+
+Thủ tục hộ tịch (kết hôn, khai sinh, khai tử...) trên dichvucong.gov.vn/*.moj.gov.vn mở
+form thật trong 1 iframe cross-origin riêng biệt hoàn toàn — `<iframe id="eform" src=
+"https://tokhaidientu.moj.gov.vn/e-form/<uuid>?KeyEformID=...&HoSoKTID=...&mode=lokify">`
+— đây là 1 hệ thống độc lập của Bộ Tư pháp, không liên quan gì tới React app vỏ ngoài
+(dichvucongnganhtuphap.moj.gov.vn), sinh động theo từng hồ sơ đã đăng nhập (không khảo
+sát tĩnh được như dichvucong.gov.vn — mỗi phiên có KeyEformID/HoSoKTID riêng).
+
+Cấu trúc DOM dùng custom element (không phải input/select chuẩn):
+- `<x-input>`/`<x-input-number>` — text/số, input thật nằm bên trong (`querySelector('input')`)
+- `<x-date>` — 3 input con riêng biệt `name="<Field>-day"`/`-month`/`-year` (maxlength 2/2/4)
+  nối bằng dấu "/", KHÔNG phải 1 ô text đơn — đây là dạng "../../..." đã quan sát thực tế
+- `<x-select>` — dropdown custom, không có input ẩn lộ giá trị ra DOM để set trực tiếp,
+  luôn phải bấm mở (`[tabindex="0"]` bên trong) rồi chọn qua `waitForOptions`/simulateClick
+- `<x-radio>` — nhóm `<label for="...">` + `<input type="checkbox">` ẩn, mỗi lựa chọn 1 field
+- `<x-select-area>` — vùng phụ thuộc (conditional field), hiện/ẩn theo lựa chọn cha, hiện
+  chưa xử lý riêng (không có trong danh sách quét)
+
+`content_script.js` — `scanEformFields()`: quét toàn bộ 5 loại tag trên, gán
+`data-scan-field-id`, trích `name` (định danh ngữ nghĩa tiếng Việt không dấu, vd
+"HoTenBenNu", "NgaySinhBenNam" — hậu tố `_BenNu`/`_BenNam` phân biệt vai trò) và `title`
+(heading `<strong>` gần nhất phía trước, vd "I. Thông tin bên nữ") qua
+`findEformSectionTitle()` (duyệt ngược `previousElementSibling` rồi lên `parentElement`).
+`dom_ai.py` — `eform_field_to_scan_field()`: convert sang format chung, `_EFORM_NAME_HINTS`
+dịch tên field tiếng Việt không dấu phổ biến (khảo sát qua thủ tục "Đăng ký kết hôn")
+sang mô tả dễ đọc, ghép với `title` thành label đầy đủ (vd "I. Thông tin bên nữ: Họ và
+tên") — field lạ không có trong bảng giữ nguyên tên gốc.
+
+**Danh mục dropdown công khai (API không cần đăng nhập)**: `POST https://tokhaidientu
+.moj.gov.vn/api/eform-service/api/call-api` body `{eformId, apiId}` trả về options thật
+(dân tộc, quốc tịch, tỉnh/thành, giới tính, loại giấy tờ tùy thân) — khảo sát thủ công 1
+lần qua Network tab (không tự động hóa được, VNeID SSO có bot-detection tầng network
+chặn cứng Playwright dù đã ẩn navigator.webdriver — ERR_CONNECTION_RESET tới endpoint
+dạng /TSbd/<hash>, sau đó trang tự trigger "Pause in debugger" nếu có CDP debugger
+client attach). `apiId` KHÔNG lộ ra DOM/attribute nào, chỉ thấy qua network lúc bấm mở
+dropdown thật — `EFORM_KNOWN_APIID` (content_script.js) gắn cứng 5 giá trị đã xác nhận
+cho thủ tục kết hôn (eformId=2056: GioiTinh=6772, QuocTich=6773, TinhThanh=6770,
+DanToc=6779, LoaiGiayToDinhDanh=6778) — field khác thủ tục/field lạ không có trong bảng
+tự fallback về bấm-mở-dropdown-thật (field_type "s" thay vì "a"). `eformId` (số nguyên,
+khác KeyEformID dạng UUID trong URL) cũng không lộ ra DOM — `getEformId()` thử đọc
+`window.eformId`/`window.__EFORM_ID__` (suy đoán, chưa xác nhận đúng), trả `null` nếu
+không có thì luôn fallback bấm mở thật (an toàn, chỉ mất phần tối ưu "biết trước options").
+
+Field type dùng ký hiệu ngắn (khác dichvucong.gov.vn dùng full-word): `t`=text, `s`=select
+(chưa biết options, phải bấm mở), `d`=date (3 ô con), `a`=autocomplete (select đã biết
+options thật qua API), `c`=checkbox, `r`=radio/choice_option (1 lựa chọn cụ thể).
 
   Cơ chế phát hiện AI nói dối: nếu turn_complete mà ai_buffer chứa "đã điền"/"đã tích"/
   "đã chọn" nhưng turn đó KHÔNG có tool-call fill_form_fields nào → log submit_error
@@ -187,22 +271,27 @@ Log chi tiết vào `data/logs/*.jsonl` cho từng bước, cả lúc bắt đ�
 ```
 Tự động, ngay khi vào đúng trang chi tiết thủ tục (trước khi chọn Tỉnh/Phường):
   → required_documents.scan_raw(procedure_name, known_url)
-    NẾU known_url đã có cache đầy đủ items → dùng luôn, KHÔNG gọi extension
-    NGƯỢC LẠI → extension scan_required_documents, lưu raw vào cache
-      (data/required_documents_cache.json, key = URL) dạng {"items": [...], "summary": None}
-      — KHÔNG gọi AI ở bước này
+    NẾU cache[procedure_name] đã có đầy đủ items → dùng luôn, KHÔNG gọi extension
+    NGƯỢC LẠI → extension scan_required_documents, lưu vào cache
+      (data/required_documents_cache.json, KEY = TÊN THỦ TỤC, không phải URL)
+      dạng {"href": known_url, "items": [...], "summary": None} — KHÔNG gọi AI
+      ở bước này
 
 KHI người dùng bấm nút [Thành phần hồ sơ cần chuẩn bị] (#requiredDocsBtn):
   → required_documents.summarize(...) — gọi lại scan_raw() trước (tận dụng cache)
   NẾU cache đã có summary → trả thẳng, KHÔNG gọi AI lại
   NGƯỢC LẠI
     → nhờ text model tóm tắt items dài dòng (giữ rõ số lượng/loại, bỏ trích dẫn luật)
-    → ghi đè cache thành {"items": [], "summary": [...]} — xóa raw, chỉ giữ bản tóm tắt
+    → cập nhật cache[procedure_name]["summary"] = [...] — GIỮ NGUYÊN "items"
+      (không xóa bản đầy đủ sau khi có tóm tắt — cần cho trang "Thành phần hồ sơ"
+      liệt kê toàn văn, xem mục bên dưới)
   → hiện list card (renderRequiredDocumentsCard) + bơm turn giả để AI tự đọc lại
     ngắn gọn danh sách bằng giọng nói
 ```
 
-Đã khảo sát trước toàn bộ 319 thủ tục bằng Playwright (`scripts/survey_required_documents.py`, chạy ngoại tuyến, hỗ trợ `SURVEY_LIMIT` để test nhỏ) để cache có sẵn raw cho hầu hết thủ tục, tránh phải quét DOM qua extension mỗi lần.
+Key đổi từ URL sang tên thủ tục (`scripts/migrate_required_documents_cache.py`, chạy 1 lần, join qua `procedure_flat_index.json`) để 2 file `procedure_flat_index.json`/`required_documents_cache.json` cùng định danh 1 thủ tục theo tên — trước đây khác kiểu key (name vs URL) gây khó tra cứu chéo. `app/required_documents.py`: `fallback_key` (chính là `procedure_name`) giờ luôn là cache key thật, `known_url` chỉ lưu vào field `href` bên trong entry.
+
+Đã khảo sát trước toàn bộ 319 thủ tục bằng Playwright (`scripts/survey_required_documents.py`, chạy ngoại tuyến, hỗ trợ `SURVEY_LIMIT` để test nhỏ) để cache có sẵn raw cho hầu hết thủ tục, tránh phải quét DOM qua extension mỗi lần. Script này vẫn key theo URL khi ghi — cần chạy `migrate_required_documents_cache.py` lại nếu khảo sát lại từ đầu.
 
 Playwright là dev-dependency thường trực của dự án (không gỡ sau khi dùng — dùng lại để khảo sát cấu trúc trang thật trước khi code).
 
@@ -223,7 +312,7 @@ Trang chính (`static/index.html`) cũng tự hiện trạng thái kết nối e
 
 ## Bảo mật khi expose ra ngoài (ngrok/LAN)
 
-**Auth người dùng thường (JWT theo username)**: `app/auth.py` quản lý danh sách username hợp lệ (`data/allowed_users.json`, gitignore — key `usernames: [...]`, admin thêm/xóa qua `/admin/users`) và JWT (`PyJWT`, thuật toán HS256, hết hạn sau `JWT_TTL_SECONDS` = 24h, ký bằng `JWT_SECRET` trong `.env` — để rỗng thì tự sinh ngẫu nhiên lúc khởi động, token cũ mất hiệu lực sau mỗi lần restart nên cần set cố định nếu muốn token sống qua restart).
+**Auth người dùng thường (JWT theo username)**: `app/auth.py` quản lý danh sách username hợp lệ (`data/allowed_users.json`, gitignore — key `usernames: [...]`, admin thêm/xóa qua `/admin/users`) và JWT (`PyJWT`, thuật toán HS256, ký bằng `JWT_SECRET` trong `.env`). Token **không có `exp`** (không tự hết hạn theo thời gian — đăng nhập 1 lần là xong); `verify_token` luôn đối chiếu lại `is_valid_username()` trên danh sách hiện tại chứ không chỉ tin chữ ký, nên admin xóa username khỏi `/admin.html` là thu hồi được token cũ ngay lập tức, không cần cơ chế blacklist riêng. `JWT_SECRET` để rỗng thì tự sinh ngẫu nhiên lúc khởi động — **PHẢI set cố định trong `.env`** (không để rỗng lúc dev) vì mỗi lần backend restart (kể cả `--reload` tự động khi sửa code Python) sẽ sinh secret mới, làm mọi token cũ mất hiệu lực ngay — từng gây bug "hết token liên tục" khi dev.
 
 Luồng đăng nhập:
 ```
@@ -231,16 +320,19 @@ Extension (popup.html/popup.js): nhập "Địa chỉ backend" (http/https, gõ 
 lưu chrome.storage.local key backendHttpUrl) + "Username" → bấm Đăng nhập
   → POST {backendHttpUrl}/auth/login {username}
   → backend check auth.is_valid_username() → không hợp lệ: 401
-  → hợp lệ: trả {token (JWT), web_link, extension_url, expires_in_seconds}
+  → hợp lệ: trả {token (JWT), web_link, extension_url}
     (web_link/extension_url tự ghép host+scheme từ chính header request tới —
     không cần cấu hình domain ngrok thủ công)
-  → popup lưu extension_url vào chrome.storage.local key backendUrl (dùng luôn
-    cho kết nối /extension của chính extension này), báo background.js reconnect
+  → popup lưu extension_url + username vào chrome.storage.local (key backendUrl,
+    username — dùng luôn cho kết nối /extension của chính extension này), báo
+    background.js reconnect
   → popup hiện web_link kèm nút Sao chép — người dùng bấm/copy để mở trang web
 ```
-`static/app.js` đọc JWT từ query param `?token=...` trên URL khi mở lần đầu (khớp `web_link`), lưu `localStorage` (key `authToken`, per-origin), tự gắn vào `/ws`. Token hết hạn (24h) → `/ws` từ chối (code 4401) → phải đăng nhập lại qua popup extension để lấy `web_link` mới.
+Popup tự đọc lại `username`/`webLink` đã lưu mỗi lần mở (không cần đăng nhập lại để thấy đang là ai) — ô Username tự điền sẵn, `#loginStatus` hiện "Đang đăng nhập: <username>" nếu đã có link lưu sẵn.
 
-`/ws` và `/extension` verify JWT qua query param `?token=...` (`auth.verify_token`, đóng kết nối code 4401 nếu thiếu/sai/hết hạn) — **luôn bắt buộc**, không có cờ tắt như cơ chế token tĩnh trước đây (khác `ADMIN_PASSWORD`, không để rỗng được vì JWT_SECRET luôn có giá trị dù không set trong `.env`). Dev localhost vẫn cần đăng nhập qua popup extension (trỏ `backendHttpUrl` về `http://localhost:8000`) trước khi mở được trang web hoặc dùng extension — nhưng chỉ cần làm 1 lần, danh sách username mặc định rỗng nên phải tự thêm ít nhất 1 username qua `/admin/users` trước khi đăng nhập được lần đầu.
+`static/app.js` đọc JWT từ query param `?token=...` trên URL khi mở lần đầu (khớp `web_link`), lưu `localStorage` (key `authToken`, per-origin), tự gắn vào `/ws`.
+
+`/ws` và `/extension` verify JWT qua query param `?token=...` (`auth.verify_token`, đóng kết nối code 4401 nếu thiếu/sai/username đã bị admin xóa) — **luôn bắt buộc**, không có cờ tắt như cơ chế token tĩnh trước đây (khác `ADMIN_PASSWORD`, không để rỗng được vì JWT_SECRET luôn có giá trị dù không set trong `.env`). Dev localhost vẫn cần đăng nhập qua popup extension (trỏ `backendHttpUrl` về `http://localhost:8000`) trước khi mở được trang web hoặc dùng extension — nhưng chỉ cần làm 1 lần, danh sách username mặc định rỗng nên phải tự thêm ít nhất 1 username qua `/admin/users` trước khi đăng nhập được lần đầu.
 
 **Auth admin (tách riêng, không liên quan JWT)**: `ADMIN_PASSWORD` (`.env`, để rỗng = khóa hẳn, không thao tác được) bảo vệ:
 - `static/admin.html`/`admin.js` — quản lý danh sách username (`POST /admin/login` xem danh sách, `POST /admin/users` thêm, `DELETE /admin/users/{username}` xóa). Không lưu session, chỉ giữ password tạm trong biến JS của trang (mất khi tải lại).

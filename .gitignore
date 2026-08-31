@@ -11,3 +11,10 @@ uv.lock
 data/logs/
 data/pdfs/
 data/allowed_users.json
+
+# Dữ liệu khảo sát form thật (scripts/inspect_form_live.py) — network log/DOM
+# snapshot có thể chứa thông tin cá nhân thật (họ tên, số định danh...) của
+# người đăng nhập lúc khảo sát, không commit.
+data/form_inspect/
+data/eform_*_apiid_scan.json
+data/eform_*_apiid_scan.progress

@@ -28,25 +28,31 @@ def get_cached(cache_key: str) -> dict | None:
     return _load_cache().get(cache_key)
 
 
+def list_all() -> dict[str, dict]:
+    global _cache
+    _cache = None  # luôn đọc lại từ disk — script khảo sát ngoài process có thể vừa ghi mới
+    return _load_cache()
+
+
 async def scan_raw(fallback_key: str | None = None, known_url: str | None = None) -> tuple[str, dict]:
-    if known_url:
-        cached = get_cached(known_url)
-        if cached and cached.get("items"):
-            return known_url, cached
+    cache = _load_cache()
+    cache_key = fallback_key or known_url or "unknown"
+
+    existing = cache.get(cache_key)
+    if existing and existing.get("items"):
+        return cache_key, existing
 
     page = await extension_manager.send_command("scan_required_documents", {})
     items = page.get("items") or []
-    cache_key = page.get("url") or known_url or fallback_key or "unknown"
+    page_url = page.get("url") or known_url
 
-    cache = _load_cache()
-    existing = cache.get(cache_key)
-    if existing and existing.get("summary"):
-        return cache_key, existing
-
-    result = {"items": items, "summary": None}
-    cache[cache_key] = result
+    entry = cache.get(cache_key, {})
+    entry["href"] = page_url
+    entry["items"] = items
+    entry.setdefault("summary", None)
+    cache[cache_key] = entry
     _save_cache()
-    return cache_key, result
+    return cache_key, entry
 
 
 async def summarize(fallback_key: str | None = None, known_url: str | None = None) -> dict:
@@ -56,10 +62,10 @@ async def summarize(fallback_key: str | None = None, known_url: str | None = Non
 
     items = raw.get("items") or []
     if not items:
-        result = {"items": [], "summary": []}
-        _load_cache()[cache_key] = result
+        raw["summary"] = []
+        _load_cache()[cache_key] = raw
         _save_cache()
-        return result
+        return raw
 
     schema = {
         "type": "OBJECT",
@@ -87,7 +93,10 @@ async def summarize(fallback_key: str | None = None, known_url: str | None = Non
         f"{item['name']} ({item.get('qty') or 'không rõ số lượng'})" for item in items
     ]
 
-    result = {"items": [], "summary": summary}
-    _load_cache()[cache_key] = result
+    # Giữ nguyên items — không xóa sau khi có summary, để vẫn tra được bản đầy
+    # đủ (vd trang "Thành phần hồ sơ" liệt kê toàn bộ văn bản) song song bản
+    # tóm tắt ngắn cho AI đọc bằng giọng nói.
+    raw["summary"] = summary
+    _load_cache()[cache_key] = raw
     _save_cache()
-    return result
+    return raw

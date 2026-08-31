@@ -16,11 +16,14 @@ const STATE_LABELS = {
   error: 'Lỗi kết nối',
 };
 
-chrome.storage.local.get(['backendHttpUrl', 'webLink'], (result) => {
+chrome.storage.local.get(['backendHttpUrl', 'webLink', 'username'], (result) => {
   if (result.backendHttpUrl) backendHttpUrlInput.value = result.backendHttpUrl;
+  if (result.username) usernameInput.value = result.username;
   if (result.webLink) {
     webLinkOutput.value = result.webLink;
     webLinkBox.classList.add('show');
+    loginStatus.textContent = `Đang đăng nhập: ${result.username || ''}`;
+    loginStatus.className = 'ok';
   }
 });
 
@@ -74,6 +77,7 @@ loginBtn.onclick = async () => {
       backendHttpUrl,
       backendUrl: result.extension_url,
       webLink: result.web_link,
+      username,
     });
 
     loginStatus.textContent = 'Đăng nhập thành công.';

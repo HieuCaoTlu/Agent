@@ -2,6 +2,64 @@ from app import text_model
 
 _MAX_HTML_CHARS = 60_000
 
+# Nhãn field name tiếng Việt không dấu (form hộ tịch điện tử, tokhaidientu.moj.gov.vn)
+# sang mô tả người đọc hiểu được — chỉ phủ các field phổ biến đã khảo sát qua thủ
+# tục "Đăng ký kết hôn", field lạ không có trong bảng thì giữ nguyên tên gốc.
+_EFORM_NAME_HINTS = {
+    "hoten": "Họ và tên",
+    "ngaysinh": "Ngày sinh",
+    "dantoc": "Dân tộc",
+    "quoctich": "Quốc tịch",
+    "sodinhdanh": "Số định danh cá nhân",
+    "loaigiaytodinhdanh": "Loại giấy tờ tùy thân",
+    "sogiaytodinhdanh": "Số giấy tờ tùy thân",
+    "ngaycapdd": "Ngày cấp giấy tờ tùy thân",
+    "noicapdd": "Cơ quan cấp giấy tờ tùy thân",
+    "loaicutru": "Loại cư trú",
+    "noicutru": "Nơi cư trú",
+    "solankethon": "Số lần kết hôn",
+    "loaitinhtranghonnhan": "Tình trạng hôn nhân",
+    "capbansao": "Đề nghị cấp bản sao",
+}
+
+_EFORM_ROLE_SUFFIX_HINTS = {
+    "bennu": " (bên nữ)",
+    "bennam": " (bên nam)",
+}
+
+
+def _humanize_eform_field_name(name: str) -> str:
+    lower = name.lower()
+    role_suffix = ""
+    base = lower
+    for suffix, hint in _EFORM_ROLE_SUFFIX_HINTS.items():
+        if lower.endswith(suffix):
+            base = lower[: -len(suffix)]
+            role_suffix = hint
+            break
+    hint = _EFORM_NAME_HINTS.get(base)
+    return f"{hint}{role_suffix}" if hint else name
+
+
+def eform_field_to_scan_field(field: dict) -> dict:
+    name = field.get("name") or ""
+    title = field.get("title")
+    human_name = _humanize_eform_field_name(name)
+    label = f"{title}: {human_name}" if title else human_name
+
+    field_type = field.get("field_type")
+    result = {
+        "label": label,
+        "selector": field["selector"],
+        "field_type": field_type,
+    }
+    if field_type == "r":
+        option_label = field.get("option_label") or ""
+        result["label"] = f"{label}: {option_label}" if label else option_label
+    if field.get("options"):
+        result["options"] = field["options"]
+    return result
+
 
 async def analyze_form(html: str, combobox_options: list[dict] | None = None) -> dict:
     schema = {

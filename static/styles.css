@@ -82,9 +82,50 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 24px;
   padding: 32px 16px;
+  flex-wrap: wrap;
 }
 
+.idle-group {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.feature-panel {
+  align-items: stretch;
+  justify-content: center;
+}
+.feature-panel h1 { text-align: left; margin-bottom: 25px !important; }
+.feature-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.feature-list-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+.feature-list strong {
+  display: block;
+  font-size: 15px;
+  color: var(--color-secondary);
+  margin-bottom: 4px;
+}
+.feature-list p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
 
 .card {
   background: var(--bg-primary);
@@ -176,6 +217,13 @@ button {
   width: 100%;
   height: min(640px, 82vh);
   overflow: hidden;
+}
+
+.chat-card > #talkBtn,
+.chat-card > .submit-prompt {
+  width: calc(100% - 48px);
+  margin-left: 24px;
+  margin-right: 24px;
 }
 
 .chat-topbar {

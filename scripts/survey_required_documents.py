@@ -81,8 +81,9 @@ async def main():
         skipped = 0
         errors = 0
         for i, proc in enumerate(procedures, 1):
+            name = proc["name"]
             url = "https://dichvucong.gov.vn" + proc["href"]
-            if url in cache and cache[url].get("items"):
+            if name in cache and cache[name].get("items"):
                 skipped += 1
                 continue
 
@@ -91,13 +92,13 @@ async def main():
                 await page.wait_for_timeout(1800)
                 result = await page.evaluate(SCAN_JS)
                 items = result.get("items", [])
-                cache[url] = {"items": items, "summary": None}
+                cache[name] = {"href": url, "items": items, "summary": None}
                 done += 1
-                print(f"[{i}/{len(procedures)}] OK ({len(items)} items): {proc['name'][:60]}")
+                print(f"[{i}/{len(procedures)}] OK ({len(items)} items): {name[:60]}")
             except Exception as e:
-                cache[url] = {"items": [], "summary": None, "error": str(e)}
+                cache[name] = {"href": url, "items": [], "summary": None, "error": str(e)}
                 errors += 1
-                print(f"[{i}/{len(procedures)}] LỖI: {proc['name'][:60]} — {e}")
+                print(f"[{i}/{len(procedures)}] LỖI: {name[:60]} — {e}")
 
             if i % 10 == 0:
                 save_cache(cache)

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Thành phần hồ sơ — Dịch vụ công</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/manage.css" />
+<link rel="stylesheet" href="/required-documents.css" />
+</head>
+<body>
+  <header class="gov-header">
+    <div class="title">
+      <strong>Thành phần hồ sơ</strong>
+      <span>Cổng hỗ trợ dịch vụ công trực tuyến</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="manage-card docs-card">
+      <a href="/" class="back-link">&larr; Quay lại trợ lý giọng nói</a>
+
+      <section>
+        <h1>Tra cứu thành phần hồ sơ</h1>
+        <input type="text" id="searchInput" placeholder="Tìm theo tên thủ tục (vd: khai sinh, kết hôn, giấy phép lái xe...)" />
+      </section>
+
+      <section>
+        <div id="resultCount" class="hint"></div>
+        <div id="procedureList">Đang tải...</div>
+      </section>
+    </div>
+  </main>
+
+  <footer>Dịch vụ hỗ trợ bằng trí tuệ nhân tạo — vui lòng đối chiếu thông tin quan trọng với cán bộ.</footer>
+
+  <script src="/required-documents.js"></script>
+</body>
+</html>

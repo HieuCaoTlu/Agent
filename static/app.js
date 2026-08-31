@@ -1,4 +1,4 @@
-const idleCard = document.getElementById('idleCard');
+const idleGroup = document.getElementById('idleGroup');
 const chatCard = document.getElementById('chatCard');
 const wave = document.getElementById('wave');
 const statusEl = document.getElementById('status');
@@ -24,8 +24,8 @@ const EXTENSION_STATUS_POLL_MS = 5000;
 
 // Token đăng nhập (JWT, cấp từ popup extension qua /auth/login): đọc từ query
 // param ?token=... khi mở link, lưu lại localStorage để lần sau không cần kèm
-// lại trong URL. Hết hạn sau 24h (JWT_TTL_SECONDS phía backend) — hết hạn thì
-// /ws sẽ từ chối kết nối, cần đăng nhập lại qua extension để lấy link mới.
+// lại trong URL. Không tự hết hạn — chỉ mất hiệu lực nếu admin xóa username
+// khỏi danh sách được phép truy cập (lúc đó /ws từ chối, cần đăng nhập lại).
 (function persistAuthTokenFromUrl() {
   const params = new URLSearchParams(location.search);
   const token = params.get('token');
@@ -385,7 +385,7 @@ function toggleTalking() {
 }
 
 async function start() {
-  idleCard.hidden = true;
+  idleGroup.hidden = true;
   chatCard.hidden = false;
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
@@ -424,7 +424,7 @@ async function start() {
 }
 
 async function startScanTest() {
-  idleCard.hidden = true;
+  idleGroup.hidden = true;
   chatCard.hidden = false;
   chatLog.innerHTML = '';
   stopAutoSubmitCountdown();
@@ -487,7 +487,7 @@ function resetUi() {
   finalizeTurn();
   setWaveState('idle');
   chatCard.hidden = true;
-  idleCard.hidden = false;
+  idleGroup.hidden = false;
   retryBtn.hidden = true;
   ws = null;
 }

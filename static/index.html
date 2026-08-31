@@ -16,20 +16,57 @@
   </header>
 
   <main>
-    <div class="card" id="idleCard">
-      <div class="orb-circle">
-        <div class="wave" id="idleWave" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span>
-        </div>
+    <div class="idle-group" id="idleGroup">
+      <div class="card feature-panel" id="featurePanel">
+        <h1>Trợ lý giọng nói AI làm được gì?</h1>
+        <ul class="feature-list">
+          <li>
+            <span class="feature-list-icon">🎙️</span>
+            <div>
+              <strong>Trợ lý giọng nói tự nhiên</strong>
+              <p>Nói chuyện trực tiếp bằng giọng nói tiếng Việt, không cần gõ chữ hay điền form thủ công.</p>
+            </div>
+          </li>
+          <li>
+            <span class="feature-list-icon">📋</span>
+            <div>
+              <strong>Tra cứu thành phần hồ sơ</strong>
+              <p>Biết ngay cần chuẩn bị giấy tờ gì, số lượng bao nhiêu, bản chính hay bản sao.</p>
+            </div>
+          </li>
+          <li>
+            <span class="feature-list-icon">🖱️</span>
+            <div>
+              <strong>Tự động mở & điền hồ sơ</strong>
+              <p>Tự tìm đúng thủ tục trên dichvucong.gov.vn, điền sẵn tỉnh/phường, điền hộ các trường trong form.</p>
+            </div>
+          </li>
+          <li>
+            <span class="feature-list-icon">👪</span>
+            <div>
+              <strong>Dành cho mọi người dân</strong>
+              <p>Phù hợp với người lớn tuổi, người chưa quen dùng máy tính hoặc bất kỳ ai muốn tiết kiệm thời gian.</p>
+            </div>
+          </li>
+        </ul>
       </div>
-      <h1>Nhấn giữ hoặc bấm nút để nói, trợ lý sẽ trả lời trực tiếp bằng giọng nói</h1>
-      <button id="startBtn">Bắt đầu hỗ trợ</button>
-      <button id="testScanBtn" class="secondary-btn">Quét trang</button>
 
-      <div class="extension-status" id="extensionStatus">
-        <span class="dot"></span>
-        <span class="label">Đang kiểm tra...</span>
+      <div class="card" id="idleCard">
+        <div class="orb-circle">
+          <div class="wave" id="idleWave" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <h1>Nhấn giữ hoặc bấm nút để nói, trợ lý sẽ trả lời trực tiếp bằng giọng nói</h1>
+        <button id="startBtn">Bắt đầu hỗ trợ</button>
+        <button id="testScanBtn" class="secondary-btn">Quét trang</button>
+        <a href="/required-documents.html" class="link-btn">Tra cứu thành phần hồ sơ</a>
+
+        <div class="extension-status" id="extensionStatus">
+          <span class="dot"></span>
+          <span class="label">Đang kiểm tra...</span>
+        </div>
       </div>
     </div>
 
