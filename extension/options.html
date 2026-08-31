@@ -24,10 +24,11 @@
 </style>
 </head>
 <body>
-  <h3>Địa chỉ backend</h3>
-  <label for="backendUrl">WebSocket URL (vd: ws://localhost:8013/extension)</label>
+  <h3>Địa chỉ backend (nâng cao)</h3>
+  <p style="font-size:13px;color:#555;">Bình thường không cần sửa ở đây — đăng nhập bằng username ở popup của extension sẽ tự điền đúng URL này. Chỉ sửa tay khi cần debug.</p>
+  <label for="backendUrl">WebSocket URL đầy đủ (kèm ?token=... nếu có)</label>
   <div class="row">
-    <input type="text" id="backendUrl" placeholder="ws://localhost:8013/extension" />
+    <input type="text" id="backendUrl" placeholder="ws://localhost:8013/extension?token=..." />
   </div>
   <button id="saveBtn">Lưu</button>
   <button id="testBtn">Kiểm tra kết nối</button>

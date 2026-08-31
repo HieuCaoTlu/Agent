@@ -10,3 +10,4 @@ uv.lock
 # chúng để chạy được ngay sau khi clone, không phải build_index.py lại từ đầu.
 data/logs/
 data/pdfs/
+data/allowed_users.json

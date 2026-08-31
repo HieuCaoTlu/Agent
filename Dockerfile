@@ -36,4 +36,6 @@ EXPOSE 8000
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: tin X-Forwarded-Proto/Host từ ngrok để /admin/login sinh đúng
+# https:// và đúng domain ngrok thay vì http://0.0.0.0.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

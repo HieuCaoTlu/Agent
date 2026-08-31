@@ -22,6 +22,28 @@ const extensionStatusEls = [
 const AUTO_SUBMIT_COUNTDOWN_SEC = 3;
 const EXTENSION_STATUS_POLL_MS = 5000;
 
+// Token đăng nhập (JWT, cấp từ popup extension qua /auth/login): đọc từ query
+// param ?token=... khi mở link, lưu lại localStorage để lần sau không cần kèm
+// lại trong URL. Hết hạn sau 24h (JWT_TTL_SECONDS phía backend) — hết hạn thì
+// /ws sẽ từ chối kết nối, cần đăng nhập lại qua extension để lấy link mới.
+(function persistAuthTokenFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (token) {
+    localStorage.setItem('authToken', token);
+    params.delete('token');
+    const rest = params.toString();
+    history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : ''));
+  }
+})();
+
+function wsUrl(path) {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const token = localStorage.getItem('authToken') || '';
+  const query = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${protocol}//${location.host}${path}${query}`;
+}
+
 let ws = null;
 let audioContext = null;
 let micStream = null;
@@ -376,7 +398,7 @@ async function start() {
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
 
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(wsUrl('/ws'));
 
   ws.onopen = async () => {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -414,7 +436,7 @@ async function startScanTest() {
   setWaveState('idle');
   statusEl.textContent = 'Đang kết nối...';
 
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(wsUrl('/ws'));
 
   ws.onopen = async () => {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });

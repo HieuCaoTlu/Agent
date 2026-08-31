@@ -2,7 +2,8 @@
 # Deploy: `defang compose up`
 # Secret (không để giá trị literal ở đây, set qua `defang config set <TÊN>`):
 #   defang config set GEMINI_API_KEY
-#   defang config set TEXT_MODEL_API_KEY   (chỉ cần nếu TEXT_MODEL_PROVIDER=openrouter)
+#   defang config set JWT_SECRET
+#   defang config set ADMIN_PASSWORD
 services:
   backend:
     build:
@@ -15,7 +16,8 @@ services:
     environment:
       # Secret thật — giá trị lấy từ `defang config`, không literal.
       - GEMINI_API_KEY
-      - TEXT_MODEL_API_KEY
+      - JWT_SECRET
+      - ADMIN_PASSWORD
 
       # Cấu hình không nhạy cảm — literal thẳng, sửa tại đây khi cần đổi.
       - TEXT_MODEL_PROVIDER=gemini
@@ -25,6 +27,7 @@ services:
       - GEMINI_VOICE_NAME=Kore
       - AUTO_GREET=false
       - APP_ENV=production
+      - MAX_CONCURRENT_SESSIONS=4
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/extension/status"]
       interval: 30s

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Tự động điền tìm kiếm, chọn thủ tục, tỉnh/phường trên dichvucong.gov.vn theo lệnh từ trợ lý giọng nói AI.",
   "permissions": ["tabs", "scripting", "storage", "alarms", "webNavigation"],
-  "host_permissions": ["https://*.gov.vn/*"],
+  "host_permissions": ["https://*.gov.vn/*", "http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },

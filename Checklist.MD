@@ -41,7 +41,7 @@ data/
 
 - **Backend**: Python, FastAPI (WebSocket + REST), `uv` quản lý dependency.
 - **Giọng nói**: Google Gemini Live API (`google-genai` SDK) — model `gemini-2.5-flash-native-audio-latest`, audio 2 chiều qua `session.receive()`/`send_realtime_input()`, transcript qua `AudioTranscriptionConfig`, function calling qua `types.Tool`.
-- **Text/reasoning thuần**: trừu tượng qua `text_model.py`, provider chọn bằng `.env` (`TEXT_MODEL_PROVIDER`): Gemini SDK trực tiếp, hoặc nhánh OpenAI-compatible (`httpx`) cho Ollama/OpenRouter.
+- **Text/reasoning thuần**: trừu tượng qua `text_model.py`, `TEXT_MODEL_PROVIDER=gemini` cố định (Gemini SDK trực tiếp) — code vẫn còn nhánh OpenAI-compatible (`httpx`) cho Ollama/OpenRouter nhưng không dùng, `.env` đã bỏ các biến `TEXT_MODEL_BASE_URL/NAME/API_KEY`, `OLLAMA_*` liên quan.
 - **Tự động hóa trình duyệt**: Chrome extension (Manifest V3) — `background.js` giữ WebSocket riêng tới backend (`/extension`), `content_script.js` thao tác DOM bằng `simulateClick` (giả lập pointerdown/mousedown/click, vì `.click()` thuần không kích hoạt đúng React) và native setter cho input.
 - **Khảo sát dữ liệu 1 lần**: Playwright (dev-dependency) để dựng `procedure_flat_index.json`.
 - **Frontend**: vanilla JS, AudioWorklet resample/encode PCM 16kHz gửi lên, giải mã PCM 24kHz nhận về bằng Web Audio API thuần. Orb ở màn hình chờ (`static/orb.js`) dùng Three.js (CDN, r0.158) — icosahedron + custom GLSL shader (simplex noise displacement + fresnel glow xoay), không audio-reactive (màn chờ chưa có audio thật); tự dừng render qua `MutationObserver` khi `#idleCard` bị ẩn để không tốn GPU lúc đang chat.
@@ -61,9 +61,7 @@ Frontend hiện transcript dạng chat real-time, sóng âm theo trạng thái n
 
 ## Tách "làm việc" khỏi "nói chuyện"
 
-Tác vụ text thuần (trích tên thủ tục, chọn CSS selector, phân tích form) đi qua `app/text_model.py`, tách khỏi Gemini Live. Provider chọn qua `.env` (`TEXT_MODEL_PROVIDER`): `gemini`, `ollama`, hoặc khác (nhánh OpenAI-compatible qua `httpx`, đang cấu hình OpenRouter). Nhánh OpenAI-compat không ép `response_format: json_schema` mà nhúng schema vào prompt rồi tự trích JSON. Gặp `429` thì đọc `retry_after_seconds`/`Retry-After`, thử lại tối đa 3 lần.
-
-`.env` không dùng comment để bật/tắt — mọi giá trị (Gemini, OpenRouter, Ollama) để thật sẵn, chỉ `TEXT_MODEL_PROVIDER` quyết định (voice luôn cố định Gemini Live).
+Tác vụ text thuần (trích tên thủ tục, chọn CSS selector, phân tích form) đi qua `app/text_model.py`, tách khỏi Gemini Live nhưng vẫn cùng dùng `GEMINI_API_KEY`/`GEMINI_TEXT_MODEL`. `TEXT_MODEL_PROVIDER=gemini` cố định — nhánh OpenAI-compatible (`httpx`, dùng cho Ollama/OpenRouter trước đây) vẫn còn trong code nhưng không còn biến `.env` tương ứng, coi như tắt.
 
 ## Tra cứu thủ tục qua RAG (trang quản lý)
 
@@ -71,7 +69,7 @@ Tác vụ text thuần (trích tên thủ tục, chọn CSS selector, phân tíc
 
 ## Màn hình: chờ (`#idleCard`)
 
-Nút "Bắt đầu hỗ trợ" (`#startBtn`) → mở `/ws`, chuyển sang màn hình chat. Nút "Quét trang" (`#testScanBtn`, `startScanTest()`) → mở `/ws` như bình thường (mic hoạt động, có thể nói tiếp ngay trong phiên), tự động gửi `trigger_scan_form` ngay khi kết nối xong và hiện sẵn `#postSubmitActions` — dùng để quét form trên bất kỳ tab `*.gov.vn` đang mở sẵn mà không cần đi qua toàn bộ luồng nộp hồ sơ trước. Link "Quản lý dữ liệu thủ tục" hiện ẩn (`hidden` trong HTML, không xóa code). Badge trạng thái kết nối extension (`#extensionStatus`, xem mục "Giao diện extension" bên dưới).
+Nút "Bắt đầu hỗ trợ" (`#startBtn`) → mở `/ws`, chuyển sang màn hình chat. Nút "Quét trang" (`#testScanBtn`, `startScanTest()`) → mở `/ws` như bình thường (mic hoạt động, có thể nói tiếp ngay trong phiên), tự động gửi `trigger_scan_form` ngay khi kết nối xong và hiện sẵn `#postSubmitActions` — dùng để quét form trên bất kỳ tab `*.gov.vn` đang mở sẵn mà không cần đi qua toàn bộ luồng nộp hồ sơ trước. Link "Quản trị"/"Quản lý dữ liệu thủ tục" hiện ở footer (công khai, xem mục "Bảo mật khi expose ra ngoài"). Badge trạng thái kết nối extension (`#extensionStatus`, xem mục "Giao diện extension" bên dưới).
 
 ## Màn hình: chat (`#chatCard`)
 
@@ -218,7 +216,41 @@ Trang chính (`static/index.html`) cũng tự hiện trạng thái kết nối e
 
 ## Rủi ro / giới hạn đã biết
 
-- `/ws` và `/extension` không có xác thực — chấp nhận được vì chỉ chạy local, cần vá nếu mở ra ngoài localhost/LAN.
 - `run_fixed_submit_flow` dùng bản đồ thao tác cố định — nếu dichvucong.gov.vn đổi giao diện sẽ hỏng, cần khảo sát lại thủ công.
 - Tỉnh/phường nộp hồ sơ cố định trong code (`SUBMIT_PROVINCE`/`SUBMIT_WARD`) — phường có thể không tồn tại cho một số thủ tục hiếm.
 - Model free tier (Gemini, OpenRouter `:free`) đều có rate-limit.
+- `ExtensionManager` (`app/extension_bridge.py`) chỉ giữ 1 socket `/extension` duy nhất — nhiều người dùng chung 1 backend qua ngrok mà mỗi người tự cài extension riêng sẽ ghi đè lẫn nhau (người sau connect làm mất kết nối người trước). Đúng model hiện tại: 1 backend điều khiển 1 trình duyệt/extension tại 1 thời điểm; `/ws` (giọng nói) thì hỗ trợ nhiều phiên đồng thời qua `MAX_CONCURRENT_SESSIONS` nhưng vẫn dùng chung 1 extension đó.
+
+## Bảo mật khi expose ra ngoài (ngrok/LAN)
+
+**Auth người dùng thường (JWT theo username)**: `app/auth.py` quản lý danh sách username hợp lệ (`data/allowed_users.json`, gitignore — key `usernames: [...]`, admin thêm/xóa qua `/admin/users`) và JWT (`PyJWT`, thuật toán HS256, hết hạn sau `JWT_TTL_SECONDS` = 24h, ký bằng `JWT_SECRET` trong `.env` — để rỗng thì tự sinh ngẫu nhiên lúc khởi động, token cũ mất hiệu lực sau mỗi lần restart nên cần set cố định nếu muốn token sống qua restart).
+
+Luồng đăng nhập:
+```
+Extension (popup.html/popup.js): nhập "Địa chỉ backend" (http/https, gõ tay 1 lần,
+lưu chrome.storage.local key backendHttpUrl) + "Username" → bấm Đăng nhập
+  → POST {backendHttpUrl}/auth/login {username}
+  → backend check auth.is_valid_username() → không hợp lệ: 401
+  → hợp lệ: trả {token (JWT), web_link, extension_url, expires_in_seconds}
+    (web_link/extension_url tự ghép host+scheme từ chính header request tới —
+    không cần cấu hình domain ngrok thủ công)
+  → popup lưu extension_url vào chrome.storage.local key backendUrl (dùng luôn
+    cho kết nối /extension của chính extension này), báo background.js reconnect
+  → popup hiện web_link kèm nút Sao chép — người dùng bấm/copy để mở trang web
+```
+`static/app.js` đọc JWT từ query param `?token=...` trên URL khi mở lần đầu (khớp `web_link`), lưu `localStorage` (key `authToken`, per-origin), tự gắn vào `/ws`. Token hết hạn (24h) → `/ws` từ chối (code 4401) → phải đăng nhập lại qua popup extension để lấy `web_link` mới.
+
+`/ws` và `/extension` verify JWT qua query param `?token=...` (`auth.verify_token`, đóng kết nối code 4401 nếu thiếu/sai/hết hạn) — **luôn bắt buộc**, không có cờ tắt như cơ chế token tĩnh trước đây (khác `ADMIN_PASSWORD`, không để rỗng được vì JWT_SECRET luôn có giá trị dù không set trong `.env`). Dev localhost vẫn cần đăng nhập qua popup extension (trỏ `backendHttpUrl` về `http://localhost:8000`) trước khi mở được trang web hoặc dùng extension — nhưng chỉ cần làm 1 lần, danh sách username mặc định rỗng nên phải tự thêm ít nhất 1 username qua `/admin/users` trước khi đăng nhập được lần đầu.
+
+**Auth admin (tách riêng, không liên quan JWT)**: `ADMIN_PASSWORD` (`.env`, để rỗng = khóa hẳn, không thao tác được) bảo vệ:
+- `static/admin.html`/`admin.js` — quản lý danh sách username (`POST /admin/login` xem danh sách, `POST /admin/users` thêm, `DELETE /admin/users/{username}` xóa). Không lưu session, chỉ giữ password tạm trong biến JS của trang (mất khi tải lại).
+- `static/manage.html`/`manage.js` — quản lý dữ liệu PDF/thủ tục (`/upload-pdf`, `DELETE /procedures/{slug}`), yêu cầu header `X-Admin-Password`. Trang tự `prompt()` hỏi mật khẩu lần đầu, giữ trong `sessionStorage` (mất khi đóng tab) — sai thì tự xóa để hỏi lại ở thao tác kế tiếp.
+
+Cả 2 trang admin có link công khai ở footer trang chính (`static/index.html`, class `.footer-admin-links`) — chấp nhận được vì cả 2 vẫn yêu cầu `ADMIN_PASSWORD` mới thao tác được, hiện link chỉ lộ sự tồn tại của trang chứ không lộ quyền truy cập.
+
+Khác:
+- `MAX_CONCURRENT_SESSIONS` (`.env`) — giới hạn số phiên `/ws` (giọng nói) đồng thời, mặc định 1. Phiên vượt giới hạn bị từ chối lịch sự (không đóng đột ngột).
+- Không có rate-limit theo IP/thời gian (cân nhắc rồi bỏ — nhóm dùng nhỏ, tin cậy, và IP qua NAT/ngrok dễ trùng nhau gây chặn nhầm chính chủ). Nếu mở rộng cho nhóm lớn hơn hoặc công khai, cần bổ sung lại.
+- `FRONTEND_ORIGIN` (`.env`) dùng cho CORS — chỉ chặn domain lạ gọi API từ trình duyệt khác, không ảnh hưởng trang chính (cùng origin luôn gọi được dù giá trị đúng/sai).
+- Deploy qua ngrok/reverse proxy cần chạy uvicorn kèm `--proxy-headers` (đã set trong `Dockerfile`) để `/auth/login` đọc đúng `https://`/`wss://` + domain ngrok thật từ `X-Forwarded-Proto`/`Host` thay vì `http://0.0.0.0`.
+- `manifest.json` `host_permissions` thêm `http://*/*`, `https://*/*` (ngoài `https://*.gov.vn/*` sẵn có) — popup cần `fetch()` tới `backendHttpUrl` là domain bất kỳ (ngrok đổi mỗi lần restart nếu dùng free tier), không khai báo trước được.

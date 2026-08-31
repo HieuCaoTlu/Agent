@@ -1,12 +1,16 @@
 import asyncio
+import os
 import shutil
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import build_index
+from app import auth
 from app import dom_ai
 from app import procedure_index
 from app import required_documents
@@ -20,8 +24,30 @@ from app.submit_flow import SUBMIT_PROVINCE, SUBMIT_WARD
 
 app = FastAPI()
 
+_FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "")
+if _FRONTEND_ORIGIN:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[_FRONTEND_ORIGIN],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+_MAX_CONCURRENT_SESSIONS = int(os.getenv("MAX_CONCURRENT_SESSIONS", "1"))
+
 _background_tasks: set[asyncio.Task] = set()
-_voice_session_active = False
+_active_session_count = 0
+
+
+def _check_ws_token(websocket: WebSocket) -> bool:
+    return auth.verify_token(websocket.query_params.get("token")) is not None
+
+
+def _require_admin(x_admin_password: str | None) -> None:
+    if not _ADMIN_PASSWORD or x_admin_password != _ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Sai mật khẩu quản trị.")
 
 
 def _track_task(coro) -> asyncio.Task:
@@ -414,15 +440,20 @@ async def _attempt_submit_procedure(
 
 @app.websocket("/ws")
 async def voice_ws(websocket: WebSocket) -> None:
-    global _voice_session_active
+    global _active_session_count
     await websocket.accept()
-    if _voice_session_active:
+
+    if not _check_ws_token(websocket):
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+
+    if _active_session_count >= _MAX_CONCURRENT_SESSIONS:
         await websocket.send_json(
-            {"type": "submit_procedure_error", "message": "Đã có một phiên trợ lý giọng nói khác đang hoạt động."}
+            {"type": "submit_procedure_error", "message": "Hệ thống đang bận, vui lòng thử lại sau ít phút."}
         )
         await websocket.close()
         return
-    _voice_session_active = True
+    _active_session_count += 1
 
     log = ConversationLogger()
     history: list[tuple[str, str]] = []
@@ -463,7 +494,7 @@ async def voice_ws(websocket: WebSocket) -> None:
         )
     finally:
         log.session_end()
-        _voice_session_active = False
+        _active_session_count -= 1
 
 
 @app.get("/extension/status")
@@ -477,6 +508,9 @@ _EXTENSION_PING_TIMEOUT = 40.0
 @app.websocket("/extension")
 async def extension_ws(websocket: WebSocket) -> None:
     await websocket.accept()
+    if not _check_ws_token(websocket):
+        await websocket.close(code=4401, reason="unauthorized")
+        return
     await extension_manager.register(websocket)
     try:
         while True:
@@ -497,7 +531,8 @@ async def list_procedures() -> list[dict]:
 
 
 @app.delete("/procedures/{slug}")
-async def delete_procedure(slug: str) -> dict:
+async def delete_procedure(slug: str, x_admin_password: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_password)
     entry = next((e for e in get_routing_index() if e["slug"] == slug), None)
     if entry is None:
         return {"ok": False, "error": "Không tìm thấy thủ tục cần xóa."}
@@ -520,8 +555,11 @@ async def delete_procedure(slug: str) -> dict:
 
 @app.post("/upload-pdf")
 async def upload_pdf(
-    file: UploadFile = File(...), source_url: str = Form(default="")
+    file: UploadFile = File(...),
+    source_url: str = Form(default=""),
+    x_admin_password: str | None = Header(default=None),
 ) -> dict:
+    _require_admin(x_admin_password)
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"ok": False, "error": "Chỉ chấp nhận file .pdf"}
 
@@ -544,6 +582,60 @@ async def upload_pdf(
     reload_index()
 
     return {"ok": True, "saved_as": str(dest_path), "source_url": source_url or None}
+
+
+class AuthLoginRequest(BaseModel):
+    username: str
+
+
+@app.post("/auth/login")
+async def auth_login(body: AuthLoginRequest, request: Request) -> dict:
+    username = body.username.strip()
+    if not username or not auth.is_valid_username(username):
+        raise HTTPException(status_code=401, detail="Username không hợp lệ hoặc chưa được cấp quyền.")
+
+    token = auth.issue_token(username)
+    host = request.headers.get("host", request.url.netloc)
+    ws_scheme = "wss" if request.url.scheme == "https" else "ws"
+    web_link = f"{request.url.scheme}://{host}/?token={token}"
+    extension_url = f"{ws_scheme}://{host}/extension?token={token}"
+    return {
+        "ok": True,
+        "token": token,
+        "expires_in_seconds": auth.JWT_TTL_SECONDS,
+        "web_link": web_link,
+        "extension_url": extension_url,
+    }
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/admin/login")
+async def admin_login(body: AdminLoginRequest) -> dict:
+    if not _ADMIN_PASSWORD or body.password != _ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Sai mật khẩu.")
+    return {"ok": True, "usernames": auth.list_users()}
+
+
+class AdminUserRequest(BaseModel):
+    username: str
+
+
+@app.post("/admin/users")
+async def admin_add_user(body: AdminUserRequest, x_admin_password: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_password)
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username không được để trống.")
+    return {"ok": True, "usernames": auth.add_user(username)}
+
+
+@app.delete("/admin/users/{username}")
+async def admin_remove_user(username: str, x_admin_password: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_password)
+    return {"ok": True, "usernames": auth.remove_user(username)}
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

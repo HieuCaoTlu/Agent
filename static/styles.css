@@ -393,3 +393,15 @@ footer {
   color: var(--text-secondary);
   padding: 12px;
 }
+
+.footer-admin-links {
+  margin-top: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+.footer-admin-links a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+.footer-admin-links a:hover { color: var(--color-primary); }

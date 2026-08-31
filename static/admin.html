@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quản trị — Dịch vụ công</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/manage.css" />
+</head>
+<body>
+  <header class="gov-header">
+    <div class="title">
+      <strong>Quản trị</strong>
+      <span>Cổng hỗ trợ dịch vụ công trực tuyến</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="manage-card">
+      <a href="/" class="back-link">&larr; Quay lại trợ lý giọng nói</a>
+
+      <section>
+        <h1>Đăng nhập quản trị</h1>
+        <form id="loginForm">
+          <label for="passwordInput">Mật khẩu quản trị</label>
+          <input type="password" id="passwordInput" required />
+          <button type="submit">Đăng nhập</button>
+          <div id="loginStatus"></div>
+        </form>
+      </section>
+
+      <section id="usersSection" hidden>
+        <h1>Username được phép truy cập</h1>
+        <p class="hint">Người dùng nhập đúng 1 trong các username này vào extension để lấy link sử dụng.</p>
+        <form id="addUserForm">
+          <div class="link-row">
+            <input type="text" id="newUsernameInput" placeholder="Username mới" required />
+            <button type="submit">Thêm</button>
+          </div>
+        </form>
+        <div id="addUserStatus"></div>
+        <div id="userList">Đang tải...</div>
+      </section>
+    </div>
+  </main>
+
+  <footer>Dịch vụ hỗ trợ bằng trí tuệ nhân tạo — vui lòng đối chiếu thông tin quan trọng với cán bộ.</footer>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
