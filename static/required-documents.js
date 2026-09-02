@@ -103,6 +103,8 @@ async function renderDetail(name) {
   const detail = detailCache[name];
   const items = detail.items || [];
   const summary = detail.summary;
+  const steps = detail.steps || [];
+  const methods = detail.methods || [];
 
   let html = '';
 
@@ -129,6 +131,22 @@ async function renderDetail(name) {
     html += '</ul>';
   }
   html += '</div>';
+
+  const onlineMethod = methods.find((m) => (m.method || '').toLowerCase().includes('trực tuyến'));
+  if (onlineMethod) {
+    html += '<div class="doc-full"><h3>Phí, lệ phí nộp trực tuyến</h3>';
+    html += `<p>${escapeHtml(onlineMethod.fee || 'Chưa rõ')}</p>`;
+    const timePart = onlineMethod.time && onlineMethod.time !== '-' ? `${onlineMethod.time} ngày — ` : '';
+    const timeText = `${timePart}${onlineMethod.description || ''}`.trim();
+    if (timeText) html += `<p>Thời gian xử lý: ${escapeHtml(timeText)}</p>`;
+    html += '</div>';
+  }
+
+  if (steps.length > 0) {
+    html += '<div class="doc-full"><h3>Trình tự thực hiện</h3><ul>';
+    html += steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('');
+    html += '</ul></div>';
+  }
 
   if (detail.href) {
     html += `<a href="${detail.href}" target="_blank" rel="noopener">Xem trên dichvucong.gov.vn</a>`;

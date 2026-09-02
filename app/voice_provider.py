@@ -8,7 +8,6 @@ from google import genai
 from google.genai import types
 
 from app.conversation_log import ConversationLogger
-from app.submit_flow import SUBMIT_PROVINCE, SUBMIT_WARD
 
 load_dotenv()
 
@@ -17,56 +16,50 @@ GEMINI_VOICE_MODEL = os.environ.get("GEMINI_VOICE_MODEL", "gemini-2.5-flash-nati
 GEMINI_VOICE_NAME = os.environ.get("GEMINI_VOICE_NAME", "Kore")
 AUTO_GREET = os.environ.get("AUTO_GREET", "false").strip().lower() in ("1", "true", "yes")
 
+DEFAULT_WARD = "Yên Sở"
+DEFAULT_PROVINCE = "Thành phố Hà Nội"
+
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-_SCAN_FORM_FIELDS_DECL = types.FunctionDeclaration(
-    name="scan_form_fields",
+_SHOW_REQUIRED_DOCUMENTS_DECL = types.FunctionDeclaration(
+    name="show_required_documents",
     description=(
-        "Quét toàn bộ các trường cần điền trên trang form hồ sơ hiện tại đang "
-        "mở trong trình duyệt của người dùng (chỉ dùng sau khi người dùng đã "
-        "đăng nhập và đang ở màn hình điền hồ sơ thật, khi người dùng yêu cầu "
-        "kiểu 'quét trang giúp tôi' hoặc hỏi 'giờ tôi phải làm gì')."
-    ),
-    parameters={"type": "OBJECT", "properties": {}},
-)
-
-_FILL_FORM_FIELDS_DECL = types.FunctionDeclaration(
-    name="fill_form_fields",
-    description=(
-        "Tự động điền/tích chọn các trường đã quét được (bằng scan_form_fields) "
-        "vào form trên trang hiện tại, dựa trên thông tin đã biết chắc chắn từ "
-        "cuộc trò chuyện. PHẢI gọi công cụ này mỗi khi người dùng yêu cầu điền, "
-        "nhập, hoặc tích/chọn BẤT KỲ trường nào — dù là yêu cầu chung chung "
-        "('bạn điền giúp tôi đi') hay yêu cầu một trường cụ thể ('tích trường "
-        "nơi sinh là trong nước', 'điền tên tôi vào'). KHÔNG BAO GIỜ được nói "
-        "là đã điền/đã tích một trường nếu chưa thực sự gọi công cụ này và "
-        "nhận kết quả xác nhận — phải đã gọi scan_form_fields trước đó trong "
-        "cùng phiên."
-    ),
-    parameters={"type": "OBJECT", "properties": {}},
-)
-
-_PROPOSE_SUBMIT_PROCEDURE_DECL = types.FunctionDeclaration(
-    name="propose_submit_procedure",
-    description=(
-        "Hiện cho người dùng 2 nút xác nhận trên màn hình (Tự động nộp / Hủy "
-        "nộp) để bắt đầu mở trang nộp hồ sơ. Chỉ dùng khi bạn thực sự có ý "
-        "định bắt đầu mở trang nộp hồ sơ ngay bây giờ — không dùng khi chỉ "
-        "đang giải thích hoặc liệt kê thành phần hồ sơ. Công cụ này không tự "
-        "nộp gì cả, chỉ hiện nút cho người dùng xác nhận."
+        "Tra cứu và hiện cho người dùng danh sách giấy tờ/thành phần hồ sơ cần "
+        "chuẩn bị cho một thủ tục hành chính cụ thể. Dùng khi người dùng hỏi "
+        "kiểu 'cần chuẩn bị giấy tờ gì', 'thành phần hồ sơ gồm những gì', 'cần "
+        "mang theo gì'."
     ),
     parameters={
         "type": "OBJECT",
         "properties": {
             "procedure_name": {
                 "type": "STRING",
-                "description": (
-                    "Tên thủ tục hành chính đang đề nghị nộp (vd 'Đăng ký kết hôn'), "
-                    "nếu bạn biết chắc chắn từ ngữ cảnh cuộc trò chuyện. Để trống nếu "
-                    "không chắc."
-                ),
+                "description": "Tên thủ tục hành chính người dùng đang hỏi (ví dụ 'Đăng ký khai sinh').",
             },
         },
+        "required": ["procedure_name"],
+    },
+)
+
+_SHOW_SUBMISSION_STEPS_DECL = types.FunctionDeclaration(
+    name="show_submission_steps",
+    description=(
+        "Hiện cho người dùng các bước cần làm để nộp hồ sơ cho một thủ tục hành "
+        "chính cụ thể, kèm đường dẫn chính thức tới nơi nộp hồ sơ trên "
+        "dichvucong.gov.vn và phí/lệ phí nộp trực tuyến nếu có. Dùng khi người "
+        "dùng hỏi kiểu 'nộp hồ sơ ở đâu', 'các bước nộp hồ sơ thế nào', 'nộp "
+        "thủ tục này như thế nào', 'nộp hồ sơ mất bao nhiêu tiền', 'phí nộp hồ "
+        "sơ online là bao nhiêu'."
+    ),
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "procedure_name": {
+                "type": "STRING",
+                "description": "Tên thủ tục hành chính người dùng đang hỏi (ví dụ 'Đăng ký kết hôn').",
+            },
+        },
+        "required": ["procedure_name"],
     },
 )
 
@@ -77,46 +70,54 @@ LIVE_CONFIG = types.LiveConnectConfig(
         "bằng tiếng Việt, ngắn gọn, tự nhiên như đang trò chuyện trực tiếp. "
         "Luôn mở đầu cuộc trò chuyện bằng đúng câu: 'Tôi là trợ lý giọng nói "
         "ảo của Phường Yên Sở, bạn muốn hỗ trợ thủ tục hành chính nào?' "
-        f"Người dùng đang cư trú tại {SUBMIT_WARD}, {SUBMIT_PROVINCE} — nếu "
+        f"Người dùng đang cư trú tại {DEFAULT_WARD}, {DEFAULT_PROVINCE} — nếu "
         "cần địa chỉ để hướng dẫn thủ tục, hãy dùng luôn thông tin này, không "
         "cần hỏi lại người dùng. Nếu chưa xác định rõ người dùng cần thủ tục "
-        "gì, hãy hỏi lại cho rõ trước, không cần gọi công cụ nộp hồ sơ vội.\n\n"
+        "gì, hãy hỏi lại cho rõ trước, không cần gọi công cụ nào vội.\n\n"
         "NẾU người dùng hỏi bạn là ai/làm được gì/giúp được gì (ví dụ 'bạn "
         "làm được gì', 'bạn giúp tôi được gì', 'giới thiệu về bản thân bạn') "
         "— hãy giới thiệu ngắn gọn: bạn là trợ lý giọng nói AI hỗ trợ thủ tục "
-        "hành chính công, có thể (1) tra cứu và giải thích thủ tục cần chuẩn "
-        "bị gì, (2) tự động mở đúng trang nộp hồ sơ trên dichvucong.gov.vn và "
-        "điền sẵn tỉnh/phường, (3) sau khi người dùng đăng nhập, tự quét và "
-        "điền hộ các trường trong form theo yêu cầu. Không cần liệt kê máy "
-        "móc, nói tự nhiên như đang giới thiệu bản thân. NGƯỢC LẠI, nếu người "
-        "dùng hỏi thẳng vào một thủ tục/vấn đề cụ thể ngay từ đầu (không hỏi "
-        "bạn là ai), hãy trả lời thẳng vào vấn đề đó, không cần giới thiệu "
-        "bản thân trước.\n\n"
-        "Khi đã rõ thủ tục và người dùng muốn nộp hồ sơ, hệ thống sẽ tự động "
-        "mở trang dichvucong.gov.vn, tìm đúng thủ tục và điền sẵn tỉnh/phường "
-        "giúp người dùng. Khi đó, hãy gọi công cụ propose_submit_procedure — "
-        "công cụ sẽ tự hiện nút xác nhận cho người dùng, bạn không cần và "
-        "không nên tự đọc tên công cụ hay cú pháp gọi công cụ thành lời, chỉ "
-        "cần nói tự nhiên một câu ngắn báo người dùng biết (ví dụ 'Để tôi mở "
-        "trang nộp hồ sơ giúp bạn nhé') và gọi công cụ đó ở phía sau, không "
-        "hiển thị trong lời nói. Nếu bạn chỉ đang giải thích/liệt kê thành "
-        "phần hồ sơ hoặc nhắc tới từ 'nộp' trong câu nói khác (không phải ý "
-        "định bắt đầu mở trang nộp ngay) thì không gọi công cụ này. Không cần "
-        "nhắc lại tên phường/thành phố lúc này (đã nói ở đầu cuộc trò chuyện "
-        "nếu cần).\n\n"
-        "Sau khi người dùng đã đăng nhập và đang ở màn hình điền hồ sơ thật, "
-        "nếu người dùng hỏi cần làm gì tiếp hoặc muốn quét trang, hãy gọi công "
-        "cụ scan_form_fields — kết quả trả về có thể chỉ là số lượng và vài "
-        "trường mẫu (form dài không liệt kê hết), hãy tóm tắt khái quát chứ "
-        "không cần đọc hết từng trường. Sau đó, khi người dùng yêu cầu điền/"
-        "nhập/tích/chọn một hoặc nhiều trường — dù nói chung chung ('bạn điền "
-        "giúp tôi đi') hay chỉ rõ 1 trường cụ thể ('tích trường nơi sinh là "
-        "trong nước') — hãy gọi công cụ fill_form_fields trước, không được tự "
-        "trả lời là đã điền/đã tích khi chưa gọi công cụ này. Kết quả trả về "
-        "có filled_count/remaining_count (số lượng) và chỉ vài ví dụ mẫu (form "
-        "dài không liệt kê hết) — chỉ dựa vào đó để nói cho người dùng biết đã "
-        "điền được bao nhiêu, còn thiếu gì, không suy đoán hay tự nhận là đã "
-        "làm xong khi chưa có kết quả thật."
+        "hành chính công, có thể (1) tra cứu và giải thích thành phần hồ sơ "
+        "cần chuẩn bị cho từng thủ tục, (2) hướng dẫn các bước nộp hồ sơ và "
+        "đưa đường dẫn chính thức tới nơi nộp trên dichvucong.gov.vn. Không "
+        "cần liệt kê máy móc, nói tự nhiên như đang giới thiệu bản thân. "
+        "NGƯỢC LẠI, nếu người dùng hỏi thẳng vào một thủ tục/vấn đề cụ thể "
+        "ngay từ đầu (không hỏi bạn là ai), hãy trả lời thẳng vào vấn đề đó, "
+        "không cần giới thiệu bản thân trước.\n\n"
+        "QUAN TRỌNG — không được tự bịa câu trả lời chung chung: nếu người "
+        "dùng hỏi về thành phần hồ sơ hoặc cách nộp hồ sơ nhưng CHƯA nói rõ "
+        "tên một thủ tục hành chính cụ thể (ví dụ chỉ hỏi 'nộp hồ sơ online "
+        "cần giấy tờ gì', 'thủ tục thì cần gì'), bạn KHÔNG được tự trả lời "
+        "kiểu ước lượng/chung chung (vd 'cũng tương tự thủ tục khác', 'hệ "
+        "thống có thể tra cứu một số giấy tờ nếu có sẵn dữ liệu') và KHÔNG "
+        "được gọi công cụ khi chưa có tên thủ tục — mọi thông tin thành phần "
+        "hồ sơ và các bước nộp đều khác nhau tùy từng thủ tục cụ thể, trả lời "
+        "chung chung là sai và gây hiểu nhầm. Việc DUY NHẤT cần làm lúc này "
+        "là hỏi lại ngắn gọn đúng 1 câu để biết chính xác tên thủ tục (ví dụ "
+        "'Bạn muốn nộp hồ sơ cho thủ tục nào ạ?'), có tên thủ tục cụ thể rồi "
+        "mới gọi công cụ tương ứng.\n\n"
+        "Mặc định LUÔN xem người dùng muốn nộp hồ sơ TRỰC TUYẾN qua Cổng "
+        "dịch vụ công (dichvucong.gov.vn) — không cần hỏi lại người dùng là "
+        "muốn nộp trực tiếp hay trực tuyến, cũng không cần nhắc câu 'giống "
+        "hệt nộp trực tiếp' hay so sánh 2 hình thức, chỉ tập trung trả lời "
+        "đúng vào việc nộp trực tuyến.\n\n"
+        "Khi đã biết rõ tên thủ tục và người dùng hỏi cần chuẩn bị giấy tờ "
+        "gì, hãy gọi công cụ show_required_documents — công cụ sẽ tự hiện "
+        "danh sách chi tiết trên màn hình cho người dùng xem, bạn chỉ cần "
+        "nói tóm tắt khái quát vài giấy tờ chính từ kết quả trả về (không "
+        "cần đọc hết từng thứ nếu danh sách dài, vì người dùng đang nhìn "
+        "thấy đầy đủ trên màn hình). Khi đã biết rõ tên thủ tục và người "
+        "dùng hỏi nộp hồ sơ ở đâu/nộp như thế nào/mất phí bao nhiêu, hãy gọi "
+        "công cụ show_submission_steps — công cụ sẽ tự hiện các bước, phí lệ "
+        "phí nộp trực tuyến (nếu có) và nút mở nơi nộp hồ sơ trên màn hình, "
+        "bạn chỉ cần tóm tắt ngắn gọn bằng lời (nhắc luôn số tiền/miễn phí "
+        "nếu người dùng hỏi về phí) và nhắc người dùng bấm nút trên màn hình "
+        "để mở đúng trang. Không tự đọc tên công cụ hay cú pháp gọi công cụ "
+        "thành lời — nói tự nhiên rồi gọi công cụ ở phía sau, không hiển thị "
+        "trong lời nói. KHÔNG "
+        "được tự nhận là đã nộp hồ sơ hay đã điền hộ giúp người dùng — hệ "
+        "thống không tự động thao tác trên trang nộp hồ sơ, người dùng luôn "
+        "tự bấm và tự điền trên trang thật."
     ),
     input_audio_transcription=types.AudioTranscriptionConfig(),
     output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -131,30 +132,24 @@ LIVE_CONFIG = types.LiveConnectConfig(
     tools=[
         types.Tool(
             function_declarations=[
-                _SCAN_FORM_FIELDS_DECL,
-                _FILL_FORM_FIELDS_DECL,
-                _PROPOSE_SUBMIT_PROCEDURE_DECL,
+                _SHOW_REQUIRED_DOCUMENTS_DECL,
+                _SHOW_SUBMISSION_STEPS_DECL,
             ]
         )
     ],
 )
 
+
 async def run_voice_session(
     websocket: WebSocket,
     log: ConversationLogger,
     history: list[tuple[str, str]],
-    on_submit_procedure,
-    on_scan_form_fields,
-    on_ai_fill_fields,
-    on_get_required_documents,
-    on_propose_submit,
-    inject_queue: asyncio.Queue,
+    on_show_required_documents,
+    on_show_submission_steps,
 ) -> None:
     async with _gemini_client.aio.live.connect(model=GEMINI_VOICE_MODEL, config=LIVE_CONFIG) as session:
-        state = {"suppress_show_submit": False}
 
-        async def inject_text(text: str, suppress_show_submit: bool = False, silent: bool = False) -> None:
-            state["suppress_show_submit"] = suppress_show_submit
+        async def inject_text(text: str, silent: bool = False) -> None:
             if not silent:
                 log.user_transcript(text)
                 history.append(("Người dùng", text))
@@ -162,11 +157,6 @@ async def run_voice_session(
                 turns=types.Content(role="user", parts=[types.Part(text=text)]),
                 turn_complete=True,
             )
-
-        async def from_queue() -> None:
-            while True:
-                text = await inject_queue.get()
-                await inject_text(text, suppress_show_submit=True)
 
         async def from_browser() -> None:
             while True:
@@ -181,40 +171,12 @@ async def run_voice_session(
                     await session.send_realtime_input(activity_start=types.ActivityStart())
                 elif msg_type == "activity_end":
                     await session.send_realtime_input(activity_end=types.ActivityEnd())
-                elif msg_type == "submit_procedure":
-                    on_submit_procedure(message.get("procedure_name"))
-                elif msg_type == "cancel_submit":
-                    await inject_text("Tôi chưa muốn nộp hồ sơ ngay bây giờ, hãy hỏi tôi cần hỗ trợ gì thêm.")
-                elif msg_type == "request_required_documents":
-                    on_get_required_documents()
-                elif msg_type == "trigger_scan_form":
-                    result = await on_scan_form_fields()
-                    if result.get("error"):
-                        await inject_text(
-                            "Hệ thống chưa quét được thông tin trang hiện tại (lỗi: "
-                            f"{result['error']}), hãy báo người dùng thử lại và có thể cần kiểm "
-                            "tra tiện ích mở rộng đã kết nối chưa.",
-                            suppress_show_submit=True,
-                        )
-                    else:
-                        count = result.get("fields_count", 0)
-                        sample = result.get("sample_labels") or []
-                        suffix = " (và một số trường khác)" if result.get("truncated") else ""
-                        await inject_text(
-                            "Hệ thống vừa quét xong trang hiện tại theo yêu cầu người dùng, tìm "
-                            f"thấy {count} trường cần điền, ví dụ: {', '.join(sample)}{suffix}. Hãy "
-                            "tóm tắt ngắn gọn cho người dùng nghe (không cần đọc hết từng trường "
-                            "nếu số lượng nhiều, chỉ cần nói khái quát các nhóm thông tin).",
-                            suppress_show_submit=True,
-                        )
                 elif msg_type == "stop":
                     return
 
         async def to_browser() -> None:
             user_buffer = ""
             ai_buffer = ""
-            fill_tool_called_this_turn = False
-            submit_proposed_this_turn = False
             while True:
                 async for chunk in session.receive():
                     if chunk.data:
@@ -223,16 +185,11 @@ async def run_voice_session(
                         )
                     if chunk.tool_call and chunk.tool_call.function_calls:
                         for call in chunk.tool_call.function_calls:
-                            if call.name == "scan_form_fields":
-                                result = await on_scan_form_fields()
-                            elif call.name == "fill_form_fields":
-                                result = await on_ai_fill_fields(user_buffer)
-                                fill_tool_called_this_turn = True
-                            elif call.name == "propose_submit_procedure":
-                                proposed_name = (call.args or {}).get("procedure_name") or None
-                                result = await on_propose_submit(proposed_name)
-                                if result.get("ok"):
-                                    submit_proposed_this_turn = True
+                            procedure_name = (call.args or {}).get("procedure_name") or ""
+                            if call.name == "show_required_documents":
+                                result = await on_show_required_documents(procedure_name)
+                            elif call.name == "show_submission_steps":
+                                result = await on_show_submission_steps(procedure_name)
                             else:
                                 result = {"error": f"Không hỗ trợ công cụ: {call.name}"}
                             await session.send_tool_response(
@@ -260,18 +217,6 @@ async def run_voice_session(
                             history.append(("Trợ lý", ai_buffer))
                             ai_buffer = ""
                     if content and content.turn_complete:
-                        if submit_proposed_this_turn and not state["suppress_show_submit"]:
-                            await websocket.send_json({"type": "show_submit_button"})
-                        if not fill_tool_called_this_turn and any(
-                            kw in ai_buffer.lower() for kw in ("đã điền", "đã tích", "đã chọn")
-                        ):
-                            log.submit_error(
-                                "ai_claimed_fill_without_tool_call",
-                                f"AI nói đã điền/tích nhưng không gọi fill_form_fields trong turn này: {ai_buffer}",
-                            )
-                        state["suppress_show_submit"] = False
-                        fill_tool_called_this_turn = False
-                        submit_proposed_this_turn = False
                         await websocket.send_json({"type": "turn_complete"})
                         if user_buffer:
                             log.user_transcript(user_buffer)
@@ -286,9 +231,8 @@ async def run_voice_session(
             if AUTO_GREET:
                 await inject_text(
                     "(Bắt đầu cuộc trò chuyện, hãy chào người dùng theo đúng câu đã dặn.)",
-                    suppress_show_submit=True,
                     silent=True,
                 )
-            await asyncio.gather(from_browser(), to_browser(), from_queue())
+            await asyncio.gather(from_browser(), to_browser())
         except (WebSocketDisconnect, asyncio.CancelledError):
             pass

@@ -22,6 +22,12 @@ def _tokenize(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS and len(w) > 1}
 
 
+def reload() -> None:
+    global _index, _doc_freq
+    _index = None
+    _doc_freq = None
+
+
 def _load() -> list[dict]:
     global _index, _doc_freq
     if _index is None:

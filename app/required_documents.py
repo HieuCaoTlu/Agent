@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 from app import text_model
-from app.extension_bridge import extension_manager
 
 _CACHE_PATH = Path("data/required_documents_cache.json")
 
@@ -24,46 +23,41 @@ def _save_cache() -> None:
     _CACHE_PATH.write_text(json.dumps(_cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def reload() -> None:
+    global _cache
+    _cache = None
+
+
 def get_cached(cache_key: str) -> dict | None:
     return _load_cache().get(cache_key)
 
 
 def list_all() -> dict[str, dict]:
     global _cache
-    _cache = None  # luôn đọc lại từ disk — script khảo sát ngoài process có thể vừa ghi mới
+    _cache = None  # luôn đọc lại từ disk — scheduler/script khảo sát ngoài process có thể vừa ghi mới
     return _load_cache()
 
 
-async def scan_raw(fallback_key: str | None = None, known_url: str | None = None) -> tuple[str, dict]:
+def get_raw(procedure_name: str, known_url: str | None = None) -> dict:
     cache = _load_cache()
-    cache_key = fallback_key or known_url or "unknown"
-
-    existing = cache.get(cache_key)
-    if existing and existing.get("items"):
-        return cache_key, existing
-
-    page = await extension_manager.send_command("scan_required_documents", {})
-    items = page.get("items") or []
-    page_url = page.get("url") or known_url
-
-    entry = cache.get(cache_key, {})
-    entry["href"] = page_url
-    entry["items"] = items
-    entry.setdefault("summary", None)
-    cache[cache_key] = entry
-    _save_cache()
-    return cache_key, entry
+    entry = cache.get(procedure_name)
+    if entry:
+        return entry
+    return {"href": known_url, "items": [], "summary": None}
 
 
-async def summarize(fallback_key: str | None = None, known_url: str | None = None) -> dict:
-    cache_key, raw = await scan_raw(fallback_key, known_url)
+async def summarize(procedure_name: str, known_url: str | None = None) -> dict:
+    cache = _load_cache()
+    raw = cache.get(procedure_name)
+    if raw is None:
+        return {"href": known_url, "items": [], "summary": []}
     if raw.get("summary"):
         return raw
 
     items = raw.get("items") or []
     if not items:
         raw["summary"] = []
-        _load_cache()[cache_key] = raw
+        cache[procedure_name] = raw
         _save_cache()
         return raw
 
@@ -97,6 +91,72 @@ async def summarize(fallback_key: str | None = None, known_url: str | None = Non
     # đủ (vd trang "Thành phần hồ sơ" liệt kê toàn bộ văn bản) song song bản
     # tóm tắt ngắn cho AI đọc bằng giọng nói.
     raw["summary"] = summary
-    _load_cache()[cache_key] = raw
+    cache[procedure_name] = raw
+    _save_cache()
+    return raw
+
+
+def get_online_fee(procedure_name: str) -> dict | None:
+    entry = _load_cache().get(procedure_name)
+    if not entry:
+        return None
+    methods = entry.get("methods") or []
+    online = next((m for m in methods if "trực tuyến" in (m.get("method") or "").lower()), None)
+    if not online:
+        return None
+
+    # "time" chỉ đôi khi chứa số ngày (vd "1") — nhiều thủ tục để "-" và ghi
+    # thời hạn xử lý thật trong "description" thay vào đó (vị trí không đồng
+    # nhất giữa các thủ tục), nên gộp cả 2 làm 1 chuỗi hiển thị đầy đủ.
+    time_part = online.get("time") or ""
+    if time_part and time_part != "-":
+        time_part = f"{time_part} ngày"
+    else:
+        time_part = ""
+    description = " ".join((online.get("description") or "").split())
+    time_text = " — ".join(p for p in (time_part, description) if p)
+
+    return {**online, "time_text": time_text}
+
+
+async def summarize_steps(procedure_name: str, known_url: str | None = None) -> dict:
+    cache = _load_cache()
+    raw = cache.get(procedure_name)
+    if raw is None:
+        return {"href": known_url, "steps": [], "steps_summary": []}
+    if raw.get("steps_summary"):
+        return raw
+
+    steps = raw.get("steps") or []
+    if not steps:
+        raw["steps_summary"] = []
+        cache[procedure_name] = raw
+        _save_cache()
+        return raw
+
+    schema = {
+        "type": "OBJECT",
+        "properties": {
+            "steps_summary": {
+                "type": "ARRAY",
+                "items": {"type": "STRING"},
+            },
+        },
+        "required": ["steps_summary"],
+    }
+    steps_text = "\n".join(f"- {s}" for s in steps)
+    prompt = (
+        "Đây là trình tự thực hiện đầy đủ (nguyên văn quy định) của một thủ tục "
+        f"hành chính, áp dụng cho cả nộp trực tiếp lẫn trực tuyến:\n{steps_text}\n\n"
+        "Hãy tóm tắt lại thành các bước ngắn gọn, dễ hiểu, CHỈ tập trung vào "
+        "luồng nộp hồ sơ TRỰC TUYẾN qua Cổng dịch vụ công (bỏ qua các đoạn chỉ "
+        "áp dụng cho nộp trực tiếp), mỗi bước 1 câu ngắn, giữ đúng thứ tự thực "
+        "hiện, bỏ bớt phần trích dẫn căn cứ pháp lý/số hiệu văn bản dài dòng."
+    )
+    result_json = await text_model.generate_json(prompt, schema)
+    steps_summary = result_json.get("steps_summary") or steps
+
+    raw["steps_summary"] = steps_summary
+    cache[procedure_name] = raw
     _save_cache()
     return raw

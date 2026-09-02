@@ -57,26 +57,6 @@ header.gov-header {
 }
 .gov-header .title span { display: block; font-size: 12px; color: #fdece3; }
 
-.extension-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-primary);
-  padding: 6px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.extension-status .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.extension-status.connected .dot { background: #3fbf5f; }
-.extension-status.disconnected .dot { background: #e0433d; }
-.extension-status.checking .dot { background: #ffc251; }
-
 main {
   flex: 1;
   display: flex;
@@ -163,8 +143,6 @@ button {
 .secondary-btn:hover { background: #d9dde3; }
 #stopBtn { background: white; color: var(--color-secondary); border: 2px solid var(--color-secondary); }
 #stopBtn:hover { background: #fbeceb; }
-#retryBtn { background: var(--color-secondary); color: white; }
-#retryBtn:hover { background: #7a2e2d; }
 #talkBtn { background: var(--color-primary); color: white; margin-bottom: 8px; }
 #talkBtn:hover { background: var(--color-secondary); }
 #talkBtn.talking { background: var(--color-secondary); animation: talk-pulse 1.2s ease-in-out infinite; }
@@ -172,20 +150,6 @@ button {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.75; }
 }
-
-.submit-prompt {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.submit-prompt button {
-  width: auto;
-  flex: 1;
-}
-#autoSubmitBtn { background: var(--color-gold); color: var(--text-primary); }
-#autoSubmitBtn:hover { background: #ffb020; }
-#cancelSubmitBtn { background: #e5e7eb; color: #55636f; }
-#cancelSubmitBtn:hover { background: #d9dde3; }
 
 .link-btn {
   display: block;
@@ -219,8 +183,7 @@ button {
   overflow: hidden;
 }
 
-.chat-card > #talkBtn,
-.chat-card > .submit-prompt {
+.chat-card > #talkBtn {
   width: calc(100% - 48px);
   margin-left: 24px;
   margin-right: 24px;
@@ -427,8 +390,36 @@ button {
   font-size: 13px;
 }
 
-.chat-card #stopBtn,
-.chat-card #retryBtn {
+.steps-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.steps-list li {
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.steps-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-style: italic;
+}
+.fee-info {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.submit-link-btn {
+  background: var(--color-gold);
+  color: var(--text-primary);
+}
+.submit-link-btn:hover { background: #ffb020; }
+
+.chat-card #stopBtn {
   flex-shrink: 0;
   border-radius: 0;
   border: none;

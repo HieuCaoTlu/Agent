@@ -4,8 +4,7 @@ const urlInput = document.getElementById('urlInput');
 const uploadStatus = document.getElementById('uploadStatus');
 const procedureList = document.getElementById('procedureList');
 
-// Mật khẩu quản trị: hỏi 1 lần khi mở trang, giữ trong sessionStorage (mất khi
-// đóng tab, khác accessToken người dùng thường lưu lâu dài trong localStorage).
+// Mật khẩu quản trị: hỏi 1 lần khi mở trang, giữ trong sessionStorage (mất khi đóng tab).
 function adminPassword() {
   let pw = sessionStorage.getItem('adminPassword');
   if (!pw) {

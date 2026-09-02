@@ -24,7 +24,7 @@
             <span class="feature-list-icon">🎙️</span>
             <div>
               <strong>Trợ lý giọng nói tự nhiên</strong>
-              <p>Nói chuyện trực tiếp bằng giọng nói tiếng Việt, không cần gõ chữ hay điền form thủ công.</p>
+              <p>Nói chuyện trực tiếp bằng giọng nói tiếng Việt, không cần gõ chữ, không cần đăng nhập hay cài thêm gì.</p>
             </div>
           </li>
           <li>
@@ -35,10 +35,10 @@
             </div>
           </li>
           <li>
-            <span class="feature-list-icon">🖱️</span>
+            <span class="feature-list-icon">🧭</span>
             <div>
-              <strong>Tự động mở & điền hồ sơ</strong>
-              <p>Tự tìm đúng thủ tục trên dichvucong.gov.vn, điền sẵn tỉnh/phường, điền hộ các trường trong form.</p>
+              <strong>Hướng dẫn các bước nộp hồ sơ</strong>
+              <p>Giải thích rõ từng bước cần làm, kèm đường dẫn chính thức tới đúng trang nộp hồ sơ trên dichvucong.gov.vn.</p>
             </div>
           </li>
           <li>
@@ -60,13 +60,7 @@
         </div>
         <h1>Nhấn giữ hoặc bấm nút để nói, trợ lý sẽ trả lời trực tiếp bằng giọng nói</h1>
         <button id="startBtn">Bắt đầu hỗ trợ</button>
-        <button id="testScanBtn" class="secondary-btn">Quét trang</button>
         <a href="/required-documents.html" class="link-btn">Tra cứu thành phần hồ sơ</a>
-
-        <div class="extension-status" id="extensionStatus">
-          <span class="dot"></span>
-          <span class="label">Đang kiểm tra...</span>
-        </div>
       </div>
     </div>
 
@@ -77,24 +71,11 @@
           <span></span><span></span><span></span><span></span>
         </div>
         <div id="status">Nhấn nút, Enter hoặc Space để bắt đầu nói</div>
-        <div class="extension-status" id="extensionStatusChat">
-          <span class="dot"></span>
-          <span class="label">Đang kiểm tra...</span>
-        </div>
       </div>
 
       <div class="chat-log" id="chatLog"></div>
 
       <button id="talkBtn">Nhấn để nói</button>
-      <div class="submit-prompt" id="submitPrompt" hidden>
-        <button id="autoSubmitBtn">Tự động nộp</button>
-        <button id="cancelSubmitBtn">Hủy nộp</button>
-      </div>
-      <div class="submit-prompt" id="postSubmitActions" hidden>
-        <button id="triggerScanBtn" class="secondary-btn">Quét trang</button>
-        <button id="requiredDocsBtn" class="secondary-btn">Thành phần hồ sơ cần chuẩn bị</button>
-      </div>
-      <button id="retryBtn" hidden>Thử lại</button>
       <button id="stopBtn">Kết thúc hỗ trợ</button>
     </div>
   </main>

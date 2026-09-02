@@ -12,33 +12,72 @@ CACHE_PATH = Path(__file__).parent.parent / "data" / "required_documents_cache.j
 
 SCAN_JS = """
 () => {
-  const headings = [...document.querySelectorAll('h4')].filter(
-    (h) => h.textContent.trim() === 'Thành phần hồ sơ'
-  );
-  if (headings.length === 0) return { items: [] };
+  function findHeading(text) {
+    return [...document.querySelectorAll('h4')].find(
+      (h) => h.textContent.trim().toLowerCase() === text.toLowerCase()
+    );
+  }
 
-  const container = headings[0].nextElementSibling;
-  if (!container) return { items: [] };
-
-  const tables = [...container.querySelectorAll('table')];
+  const docsHeading = findHeading('Thành phần hồ sơ');
   const items = [];
-  for (const table of tables) {
-    const headerCells = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
-    const nameIdx = headerCells.findIndex((h) => h.includes('Tên giấy tờ'));
-    const qtyIdx = headerCells.findIndex((h) => h.includes('Số lượng'));
-    if (nameIdx === -1) continue;
+  if (docsHeading && docsHeading.nextElementSibling) {
+    const tables = [...docsHeading.nextElementSibling.querySelectorAll('table')];
+    for (const table of tables) {
+      const headerCells = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      const nameIdx = headerCells.findIndex((h) => h.includes('Tên giấy tờ'));
+      const qtyIdx = headerCells.findIndex((h) => h.includes('Số lượng'));
+      if (nameIdx === -1) continue;
 
-    const rows = [...table.querySelectorAll('tbody tr')];
-    for (const row of rows) {
-      const cells = [...row.querySelectorAll('td')];
-      const name = cells[nameIdx] ? cells[nameIdx].textContent.trim() : '';
-      const qty = qtyIdx !== -1 && cells[qtyIdx] ? cells[qtyIdx].textContent.trim() : '';
-      if (name) {
-        items.push({ name, qty });
+      const rows = [...table.querySelectorAll('tbody tr')];
+      for (const row of rows) {
+        const cells = [...row.querySelectorAll('td')];
+        const name = cells[nameIdx] ? cells[nameIdx].textContent.trim() : '';
+        const qty = qtyIdx !== -1 && cells[qtyIdx] ? cells[qtyIdx].textContent.trim() : '';
+        if (name) {
+          items.push({ name, qty });
+        }
       }
     }
   }
-  return { items };
+
+  const stepsHeading = findHeading('Trình tự thực hiện');
+  const steps = [];
+  if (stepsHeading && stepsHeading.nextElementSibling) {
+    const rawText = stepsHeading.nextElementSibling.textContent || '';
+    for (const line of rawText.split('\\n')) {
+      const trimmed = line.trim();
+      if (trimmed) steps.push(trimmed);
+    }
+  }
+
+  const methodHeading = findHeading('Cách thức thực hiện');
+  const methods = [];
+  if (methodHeading && methodHeading.nextElementSibling) {
+    const table = methodHeading.nextElementSibling.querySelector('table');
+    if (table) {
+      const headerCells = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      const methodIdx = headerCells.findIndex((h) => h.includes('Hình thức nộp'));
+      const timeIdx = headerCells.findIndex((h) => h.includes('Thời gian'));
+      const feeIdx = headerCells.findIndex((h) => h.includes('Phí') || h.includes('lệ phí'));
+      const descIdx = headerCells.findIndex((h) => h.includes('Mô tả'));
+
+      const rows = [...table.querySelectorAll('tbody tr')];
+      for (const row of rows) {
+        const cells = [...row.querySelectorAll('td')].map((td) => td.textContent.trim());
+        const methodName = methodIdx !== -1 ? cells[methodIdx] : cells[0];
+        if (methodName) {
+          methods.push({
+            method: methodName || '',
+            time: timeIdx !== -1 ? (cells[timeIdx] || '') : '',
+            fee: feeIdx !== -1 ? (cells[feeIdx] || '') : '',
+            description: descIdx !== -1 ? (cells[descIdx] || '') : '',
+          });
+        }
+      }
+    }
+  }
+
+  return { items, steps, methods };
 }
 """
 
@@ -83,7 +122,8 @@ async def main():
         for i, proc in enumerate(procedures, 1):
             name = proc["name"]
             url = "https://dichvucong.gov.vn" + proc["href"]
-            if name in cache and cache[name].get("items"):
+            existing = cache.get(name)
+            if existing and existing.get("items") and "steps" in existing and "methods" in existing:
                 skipped += 1
                 continue
 
@@ -92,11 +132,21 @@ async def main():
                 await page.wait_for_timeout(1800)
                 result = await page.evaluate(SCAN_JS)
                 items = result.get("items", [])
-                cache[name] = {"href": url, "items": items, "summary": None}
+                steps = result.get("steps", [])
+                methods = result.get("methods", [])
+                entry = existing or {}
+                entry["href"] = url
+                entry["items"] = items
+                entry["steps"] = steps
+                entry["methods"] = methods
+                entry.setdefault("summary", None)
+                cache[name] = entry
                 done += 1
-                print(f"[{i}/{len(procedures)}] OK ({len(items)} items): {name[:60]}")
+                print(f"[{i}/{len(procedures)}] OK ({len(items)} items, {len(steps)} steps, {len(methods)} methods): {name[:60]}")
             except Exception as e:
-                cache[name] = {"href": url, "items": [], "summary": None, "error": str(e)}
+                entry = existing or {"href": url, "items": [], "steps": [], "methods": [], "summary": None}
+                entry["error"] = str(e)
+                cache[name] = entry
                 errors += 1
                 print(f"[{i}/{len(procedures)}] LỖI: {name[:60]} — {e}")
 
